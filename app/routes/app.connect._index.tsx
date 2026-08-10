@@ -18,12 +18,26 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   // "Every step can be left and resumed" (product spec §7.1) -- if a connection already exists,
   // send the merchant back into the flow rather than letting them start a second one.
+  //
+  // connectionId must be included here -- app.connect.$erpType.tsx's loader requires it and
+  // redirects back to /app/connect without it, which without this param would bounce straight
+  // back here and redirect again: an infinite loop between the two routes. Found live on the
+  // test store (server logs showed the same two URLs alternating every ~200ms), not caught by
+  // any lint/typecheck/test/build check, since none of them exercise the "connection already
+  // exists but has no credentials yet" resume path against a real request.
   const existing = await getActiveConnectionForShop(shop.id);
   if (existing) {
+    // A closely related loop risk: credentialsEncrypted gets set as soon as step 2 stores the
+    // partial config (before OAuth even completes), so it stays truthy even if the connection
+    // later lands in 'error' status (e.g. testConnection failed in the callback). Sending an
+    // 'error' connection to /mapping would just bounce it straight back here, since that route
+    // requires status === 'active' -- so status is checked first, ahead of credentialsEncrypted.
+    const nextStep =
+      existing.status === "active" && existing.credentialsEncrypted ? "mapping" : null;
     throw redirect(
-      existing.credentialsEncrypted
-        ? `/app/connect/${existing.erpType}/mapping`
-        : `/app/connect/${existing.erpType}`,
+      nextStep
+        ? `/app/connect/${existing.erpType}/${nextStep}?connectionId=${existing.id}`
+        : `/app/connect/${existing.erpType}?connectionId=${existing.id}`,
     );
   }
 
