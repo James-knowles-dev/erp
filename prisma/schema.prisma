@@ -1,0 +1,47 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Managed internally by @shopify/shopify-app-session-storage-prisma for OAuth session/token
+// lifecycle. accessToken here is plaintext, per the library's default behavior -- this is a
+// known gap against the "encrypted at rest" requirement in erp-connector-dev-spec.md §9; the
+// separate Shop model below is our own app-level record and does store an encrypted token.
+// Revisit a custom encrypting SessionStorage adapter before this handles real merchant data.
+model Session {
+  id                  String    @id
+  shop                String
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+}
+
+// Matches the `shops` table in erp-connector-dev-spec.md §5.
+model Shop {
+  id                   String   @id @default(uuid())
+  shopifyDomain        String   @unique @map("shopify_domain")
+  accessTokenEncrypted String   @map("access_token_encrypted")
+  installedAt          DateTime @map("installed_at")
+  planTier             String   @map("plan_tier")
+
+  @@map("shops")
+}

@@ -1,0 +1,49 @@
+# This file stores configurations for your Shopify app.
+
+client_id = ""
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+# Intentionally empty for Milestone 0 (OAuth install + Billing API need no Admin API scopes) --
+# per the least-privilege principle in erp-connector-spec.md §8, add scopes incrementally as
+# each milestone needs them (e.g. read_orders/write_orders when webhook sync work starts in M3),
+# not all upfront.
+scopes = ""
+
+[webhooks]
+api_version = "2024-10"
+
+  # Handled by: /app/routes/webhooks.app.uninstalled.tsx
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/uninstalled"
+  topics = ["app/uninstalled"]
+
+  # Handled by: /app/routes/webhooks.app.scopes_update.tsx
+  [[webhooks.subscriptions]]
+  topics = [ "app/scopes_update" ]
+  uri = "/webhooks/app/scopes_update"
+
+  # Webhooks can have filters
+  # Only receive webhooks for product updates with a product price >= 10.00
+  # See: https://shopify.dev/docs/apps/build/webhooks/customize/filters
+  # [[webhooks.subscriptions]]
+  # topics = ["products/update"]
+  # uri = "/webhooks/products/update"
+  # filter = "variants.price:>=10.00"
+
+  # Mandatory compliance topics for public apps -- required from day one per
+  # erp-connector-spec.md §9, not deferred to a later milestone.
+  # Handled by: /app/routes/webhooks.customers.data_request.tsx
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/data_request"
+  compliance_topics = ["customers/data_request"]
+
+  # Handled by: /app/routes/webhooks.customers.redact.tsx
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/redact"
+  compliance_topics = ["customers/redact"]
+
+  # Handled by: /app/routes/webhooks.shop.redact.tsx
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/shop/redact"
+  compliance_topics = ["shop/redact"]
