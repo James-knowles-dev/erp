@@ -140,6 +140,10 @@ interface CanonicalRefund {
   reason?: string;
   targetErpDocumentType: 'credit_memo' | 'reversed_invoice' | 'cancelled_order';
   // resolved by the adapter based on the order's ERP-side state at refund time
+  originalErpDocumentId: string;
+  // The ERP-side document id being credited/reversed/cancelled. Added during Milestone 1 --
+  // without it an adapter has no way to know which ERP record a refund applies to. The sync
+  // worker (Milestone 3) resolves this from sync_jobs.erp_document_ref before calling pushRefund().
 }
 
 interface CanonicalCustomer {
@@ -262,7 +266,7 @@ Adapter-specific notes to build against:
 
 | ERP | Auth | Real-time capability | Notes |
 |---|---|---|---|
-| NetSuite | Token-based auth (TBA) or OAuth 2.0 | SuiteScript-based webhooks possible but require setup on the NetSuite side | Most mature ecosystem to reference (Celigo, FarApp docs) for expected object shapes |
+| NetSuite | OAuth 2.0 Authorization Code Grant (TBA ruled out -- blocked for new integrations from NetSuite's 2027.1 release, see build-plan decision D3) | SuiteScript-based webhooks possible but require setup on the NetSuite side | Most mature ecosystem to reference (Celigo, FarApp docs) for expected object shapes |
 | Business Central | Azure AD OAuth 2.0 | Native webhook/change-tracking support via OData | Microsoft's own connector proves the API supports real-time; build against the same endpoints |
 | Acumatica | OAuth 2.0 | REST API, generally the friendliest of the group, webhook support for order events | Friendliest API of the group — would be the lowest-risk *first* adapter on engineering merits alone, but the product spec's build order (§13 there) puts NetSuite first instead, to validate the canonical model against the toughest, highest-demand competitive case immediately. Expect to bank schedule margin back here once this adapter is up second. |
 | Sage Intacct | Sender ID/password + session-based API | Limited native webhook support, likely polling-based | Treat as a separate adapter from Sage 300 — different API entirely |

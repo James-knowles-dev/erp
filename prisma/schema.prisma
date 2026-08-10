@@ -43,5 +43,52 @@ model Shop {
   installedAt          DateTime @map("installed_at")
   planTier             String   @map("plan_tier")
 
+  erpConnections ErpConnection[]
+
   @@map("shops")
+}
+
+// Matches `erp_connections` in erp-connector-dev-spec.md §5. v1 assumes one active connection
+// per shop (see that section's comment), so no uniqueness constraint is added beyond the FK --
+// enforcing "one active" is application logic, not a schema constraint, since a shop legitimately
+// has multiple rows here across a connect -> disconnect -> reconnect lifecycle.
+model ErpConnection {
+  id                    String    @id @default(uuid())
+  shopId                String    @map("shop_id")
+  shop                  Shop      @relation(fields: [shopId], references: [id])
+  erpType               String    @map("erp_type") // 'netsuite' | 'acumatica' | 'business_central' | 'sage_intacct' | 'sage_300' | 'brightpearl'
+  environment           String // 'sandbox' | 'production'
+  credentialsEncrypted  String    @map("credentials_encrypted")
+  status                String // 'pending' | 'active' | 'error' | 'disabled'
+  connectedAt           DateTime? @map("connected_at")
+  lastSuccessfulSyncAt  DateTime? @map("last_successful_sync_at")
+
+  fieldMappings  FieldMapping[]
+  edgeCaseRules  EdgeCaseRule[]
+
+  @@map("erp_connections")
+}
+
+// Matches `field_mappings` in erp-connector-dev-spec.md §5.
+model FieldMapping {
+  id             String        @id @default(uuid())
+  connectionId   String        @map("connection_id")
+  connection     ErpConnection @relation(fields: [connectionId], references: [id])
+  shopifyField   String        @map("shopify_field")
+  erpField       String        @map("erp_field")
+  transformRule  String?       @map("transform_rule")
+  isRequired     Boolean       @default(false) @map("is_required")
+
+  @@map("field_mappings")
+}
+
+// Matches `edge_case_rules` in erp-connector-dev-spec.md §5.
+model EdgeCaseRule {
+  id           String        @id @default(uuid())
+  connectionId String        @map("connection_id")
+  connection   ErpConnection @relation(fields: [connectionId], references: [id])
+  ruleKey      String        @map("rule_key") // e.g. 'backorder_behavior', 'guest_customer_handling'
+  ruleValue    String        @map("rule_value")
+
+  @@map("edge_case_rules")
 }
