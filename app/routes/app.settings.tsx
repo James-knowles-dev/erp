@@ -13,6 +13,7 @@ import { generateApiKey, setApiKey } from "../utils/apiKey.server";
 import { listWebhookSubscriptions } from "../sync/webhookSubscriptions.server";
 import { EVENT_TYPES } from "../sync/webhookEventTypes";
 import { SUPPORTED_ERPS } from "../adapters/registry.server";
+import { generateInviteCode, getAgencyLinkForShop } from "../models/agency.server";
 
 // Product spec §7.7 (extensibility): the API key and event list an agency needs to build custom
 // logic against this connection. Registering a webhook subscription itself is done via the API
@@ -23,7 +24,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const shop = await getOrCreateShop(session.shop);
   const connection = await getActiveConnectionForShop(shop.id);
 
-  if (!connection) return { connected: false as const };
+  // Agency linking (Milestone 8) isn't scoped to a connection like the API key/webhooks below --
+  // a merchant can generate an invite code before ever connecting an ERP -- so it's read
+  // regardless of `connection`.
+  const agencyLink = await getAgencyLinkForShop(shop.id);
+  const agency = {
+    linkedAgencyName: agencyLink?.agency.name ?? null,
+    pendingInviteCode: !agencyLink && !shop.agencyInviteCodeUsedAt ? shop.agencyInviteCode : null,
+  };
+
+  if (!connection) return { connected: false as const, agency };
 
   const subscriptions = await listWebhookSubscriptions(connection.id);
   return {
@@ -34,17 +44,25 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     hasApiKey: Boolean(connection.apiKeyHash),
     subscriptions,
     apiBaseUrl: new URL(request.url).origin,
+    agency,
   };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = await getOrCreateShop(session.shop);
-  const connection = await getActiveConnectionForShop(shop.id);
-  if (!connection) throw new Response("No active connection", { status: 400 });
 
   const formData = await request.formData();
   const intent = formData.get("intent");
+
+  if (intent === "generate_invite_code") {
+    // Not scoped to a connection -- a merchant can invite an agency before picking an ERP.
+    const code = await generateInviteCode(shop.id);
+    return { newInviteCode: code };
+  }
+
+  const connection = await getActiveConnectionForShop(shop.id);
+  if (!connection) throw new Response("No active connection", { status: 400 });
 
   if (intent === "disconnect") {
     // Sets status: 'disabled' rather than deleting the row -- sync_jobs, activity_log, and
@@ -71,12 +89,15 @@ export default function Settings() {
     return (
       <Page>
         <TitleBar title="Settings" />
-        <Card>
-          <Text as="p" variant="bodyMd">
-            Connect an ERP first -- API access and webhook subscriptions are scoped to a
-            connection.
-          </Text>
-        </Card>
+        <BlockStack gap="500">
+          <Card>
+            <Text as="p" variant="bodyMd">
+              Connect an ERP first -- API access and webhook subscriptions are scoped to a
+              connection.
+            </Text>
+          </Card>
+          <AgencyCard agency={data.agency} newInviteCode={actionData && "newInviteCode" in actionData ? actionData.newInviteCode : undefined} />
+        </BlockStack>
       </Page>
     );
   }
@@ -127,7 +148,7 @@ export default function Settings() {
                   <code>Authorization: Bearer &lt;key&gt;</code> against{" "}
                   <code>{data.apiBaseUrl}/api/*</code>.
                 </Text>
-                {actionData?.newApiKey && (
+                {actionData && "newApiKey" in actionData && (
                   <Banner tone="warning" title="Copy this key now -- it won't be shown again">
                     <Text as="p" variant="bodyMd">
                       <code>{actionData.newApiKey}</code>
@@ -139,13 +160,16 @@ export default function Settings() {
                     {data.hasApiKey ? "Regenerate API key" : "Generate API key"}
                   </Button>
                 </Form>
-                {data.hasApiKey && !actionData?.newApiKey && (
+                {data.hasApiKey && !(actionData && "newApiKey" in actionData) && (
                   <Text as="p" variant="bodySm" tone="subdued">
                     A key already exists. Regenerating immediately invalidates it.
                   </Text>
                 )}
               </BlockStack>
             </Card>
+          </Layout.Section>
+          <Layout.Section>
+            <AgencyCard agency={data.agency} newInviteCode={actionData && "newInviteCode" in actionData ? actionData.newInviteCode : undefined} />
           </Layout.Section>
           <Layout.Section>
             <Card>
@@ -176,5 +200,51 @@ export default function Settings() {
         </Layout>
       </BlockStack>
     </Page>
+  );
+}
+
+// Shared between the connected and not-connected layouts -- an agency invite isn't gated on
+// having an ERP connection, so this can't live inside the connection-specific Layout.Section tree.
+function AgencyCard({
+  agency,
+  newInviteCode,
+}: {
+  agency: { linkedAgencyName: string | null; pendingInviteCode: string | null };
+  newInviteCode?: string;
+}) {
+  return (
+    <Card>
+      <BlockStack gap="300">
+        <Text as="h2" variant="headingMd">
+          Agency access
+        </Text>
+        {agency.linkedAgencyName ? (
+          <Text as="p" variant="bodyMd">
+            Linked to <strong>{agency.linkedAgencyName}</strong>. They can view sync health and
+            apply mapping templates to this connection.
+          </Text>
+        ) : (
+          <>
+            <Text as="p" variant="bodyMd">
+              Working with an agency? Generate a one-time invite code and share it with them --
+              they'll enter it on their end to link this shop. The code is single-use.
+            </Text>
+            {(newInviteCode ?? agency.pendingInviteCode) && (
+              <Banner tone="info" title="Share this code with your agency">
+                <Text as="p" variant="bodyMd">
+                  <code>{newInviteCode ?? agency.pendingInviteCode}</code>
+                </Text>
+              </Banner>
+            )}
+            <Form method="post">
+              <input type="hidden" name="intent" value="generate_invite_code" />
+              <Button submit variant={agency.pendingInviteCode ? "secondary" : "primary"}>
+                {agency.pendingInviteCode ? "Generate new code" : "Generate invite code"}
+              </Button>
+            </Form>
+          </>
+        )}
+      </BlockStack>
+    </Card>
   );
 }

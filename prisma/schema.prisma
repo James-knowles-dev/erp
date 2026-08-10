@@ -42,8 +42,16 @@ model Shop {
   accessTokenEncrypted String   @map("access_token_encrypted")
   installedAt          DateTime @map("installed_at")
   planTier             String   @map("plan_tier")
+  // Added building Milestone 8. Neither spec describes how an agency actually gets linked to a
+  // client shop in the first place (the dev spec's §6 API list assumes a link already exists) --
+  // a merchant-generated, single-use invite code the merchant shares with their agency is a
+  // reasonable filled-in gap: it means linking always requires the merchant's explicit action,
+  // not just an agency guessing/entering a shop domain.
+  agencyInviteCode       String?   @unique @map("agency_invite_code")
+  agencyInviteCodeUsedAt DateTime? @map("agency_invite_code_used_at")
 
-  erpConnections ErpConnection[]
+  erpConnections    ErpConnection[]
+  agencyClientLinks AgencyClientLink[]
 
   @@map("shops")
 }
@@ -193,4 +201,83 @@ model WebhookSubscription {
 
   @@index([connectionId])
   @@map("webhook_subscriptions")
+}
+
+// --- Milestone 8: agency layer (product spec §7.8) ---
+// Agencies aren't Shopify shops, so this whole layer needs its own auth (see AgencyUser) rather
+// than reusing Shopify session auth the way every route so far has.
+
+// Matches `agencies` in erp-connector-dev-spec.md §5.
+model Agency {
+  id             String   @id @default(uuid())
+  name           String
+  brandingConfig Json?    @map("branding_config") // logo url, colors for white-label reports
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  users            AgencyUser[]
+  clientLinks      AgencyClientLink[]
+  mappingTemplates MappingTemplate[]
+
+  @@map("agencies")
+}
+
+// Not in the original dev spec's §5 schema -- added while fixing spec gaps before Milestone 0
+// (erp-connector-spec.md §7.8 promises "agency staff get scoped access to client instances," but
+// the original schema only linked the agency as a whole to a client, with nowhere to represent
+// individual staff members or their own credentials).
+model AgencyUser {
+  id           String   @id @default(uuid())
+  agencyId     String   @map("agency_id")
+  agency       Agency   @relation(fields: [agencyId], references: [id])
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         String // 'owner' | 'admin' | 'staff' -- 'owner'/'admin' see every linked client;
+                       // 'staff' is scoped via AgencyUserClientAccess
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  clientAccess AgencyUserClientAccess[]
+
+  @@map("agency_users")
+}
+
+// Matches `agency_client_links` in erp-connector-dev-spec.md §5.
+model AgencyClientLink {
+  id       String @id @default(uuid())
+  agencyId String @map("agency_id")
+  agency   Agency @relation(fields: [agencyId], references: [id])
+  shopId   String @map("shop_id")
+  shop     Shop   @relation(fields: [shopId], references: [id])
+  role     String // 'admin' | 'viewer' -- the agency's own access level on this client, unrelated
+                  // to which staff member is acting (see AgencyUser.role for that)
+
+  userAccess AgencyUserClientAccess[]
+
+  @@map("agency_client_links")
+}
+
+// Per-client scoping for 'staff'-role AgencyUsers -- absence of a row means no access for that
+// user to that client. 'owner'/'admin' role users bypass this table entirely (see
+// requireAgencyAccess in app/utils/agencyAuth.server.ts).
+model AgencyUserClientAccess {
+  id                 String           @id @default(uuid())
+  agencyUserId       String           @map("agency_user_id")
+  agencyUser         AgencyUser       @relation(fields: [agencyUserId], references: [id])
+  agencyClientLinkId String           @map("agency_client_link_id")
+  agencyClientLink   AgencyClientLink @relation(fields: [agencyClientLinkId], references: [id])
+
+  @@unique([agencyUserId, agencyClientLinkId])
+  @@map("agency_user_client_access")
+}
+
+// Matches `mapping_templates` in erp-connector-dev-spec.md §5.
+model MappingTemplate {
+  id                      String   @id @default(uuid())
+  agencyId                String   @map("agency_id")
+  agency                  Agency   @relation(fields: [agencyId], references: [id])
+  erpType                 String   @map("erp_type")
+  template                Json // FieldMapping[] JSON, same shape field_mappings rows collapse into
+  createdFromConnectionId String?  @map("created_from_connection_id")
+  createdAt               DateTime @default(now()) @map("created_at")
+
+  @@map("mapping_templates")
 }

@@ -284,7 +284,14 @@ CREATE TABLE shops (
   shopify_domain TEXT UNIQUE NOT NULL,
   access_token_encrypted TEXT NOT NULL,
   installed_at TIMESTAMPTZ NOT NULL,
-  plan_tier TEXT NOT NULL
+  plan_tier TEXT NOT NULL,
+  agency_invite_code TEXT UNIQUE,           -- added in Milestone 8: neither spec says how an
+                                             -- agency actually gets linked to a client shop --
+                                             -- filled in as a merchant-generated, single-use code
+                                             -- (app/models/agency.server.ts) the merchant shares
+                                             -- with their agency, who redeems it from their own
+                                             -- dashboard (§7.8 assumes a link already exists)
+  agency_invite_code_used_at TIMESTAMPTZ
 );
 
 -- One ERP connection per shop (a shop could theoretically connect more than one, though v1 assumes one active connection)
@@ -383,10 +390,20 @@ CREATE TABLE agency_client_links (
 CREATE TABLE agency_users (
   id UUID PRIMARY KEY,
   agency_id UUID REFERENCES agencies(id),
-  email TEXT NOT NULL,
+  email TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,        -- scrypt, not the invited_at/accepted_at invite-link flow
+                                       -- this table originally specified. Built instead as
+                                       -- self-serve signup + password login (agency.signup.tsx /
+                                       -- agency.login.tsx / app/utils/agencyAuth.server.ts) --
+                                       -- the simpler of two reasonable readings of §7.8, which
+                                       -- doesn't specify how an agency account is created in the
+                                       -- first place. KNOWN GAP: only the 'owner' role can be
+                                       -- created this way today -- there's no UI yet for an owner
+                                       -- to invite 'admin'/'staff' teammates onto an existing
+                                       -- agency, though the role column and
+                                       -- agency_user_client_access scoping both already support it.
   role TEXT NOT NULL,                 -- 'owner' | 'admin' | 'staff' -- 'owner'/'admin' see every linked client; 'staff' is scoped via agency_user_client_access
-  invited_at TIMESTAMPTZ NOT NULL,
-  accepted_at TIMESTAMPTZ
+  created_at TIMESTAMPTZ NOT NULL
 );
 
 -- Per-client scoping for 'staff'-role agency_users; absence of a row means no access for that user to that client
@@ -401,7 +418,8 @@ CREATE TABLE mapping_templates (
   agency_id UUID REFERENCES agencies(id),
   erp_type TEXT NOT NULL,
   template JSONB NOT NULL,
-  created_from_connection_id UUID REFERENCES erp_connections(id)
+  created_from_connection_id UUID REFERENCES erp_connections(id),
+  created_at TIMESTAMPTZ NOT NULL
 );
 ```
 
@@ -436,6 +454,14 @@ GET    /api/agency/users                              # list agency_users (staff
 POST   /api/agency/users                               # invite a staff member, sets role
 PUT    /api/agency/users/:id/client-access             # set which clients a 'staff'-role user can see (agency_user_client_access)
 ```
+
+Built in Milestone 8 as server-rendered `agency.*` Remix routes under cookie-session auth
+(`app/utils/agencyAuth.server.ts`), not a literal `/api/agency/*` JSON API -- this whole section
+was always this doc's rough interface sketch rather than a literal route table (the wizard steps
+above were built the same way, as `/app/connect/...` Remix routes). Two differences worth calling
+out specifically: reports export as CSV (`?format=csv`), not PDF -- no PDF library was added for
+this -- and there's no `POST /api/agency/users` staff-invite equivalent yet (see the `agency_users`
+comment in §5): only self-serve owner signup exists in v1.
 
 ---
 

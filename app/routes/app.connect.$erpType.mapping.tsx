@@ -18,6 +18,7 @@ import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { getConnection, getFieldMappings, saveFieldMappings } from "../models/connections.server";
 import { getDefaultFieldMappings, validateMapping, SUPPORTED_ERPS } from "../adapters/registry.server";
+import { findMappingTemplateForShop } from "../models/agency.server";
 import type { FieldMapping } from "../adapters/types";
 
 // Scoped-down first version of product spec §7.1 step 4: a single "Order" section (Customer/
@@ -35,6 +36,10 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   if (!connection || connection.status !== "active") throw redirect("/app/connect");
 
   const saved = await getFieldMappings(connectionId);
+  // Priority: mappings already saved on this connection > this shop's agency's mapping template
+  // (Milestone 8, product spec §7.8 -- lets an agency onboard repeat clients onto the same ERP
+  // without re-typing the same field mapping every time) > the adapter's generic defaults.
+  const template = saved.length > 0 ? null : await findMappingTemplateForShop(connection.shopId, erpType);
   const mappings: FieldMapping[] =
     saved.length > 0
       ? saved.map((m) => ({
@@ -43,7 +48,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
           transformRule: m.transformRule ?? undefined,
           isRequired: m.isRequired,
         }))
-      : getDefaultFieldMappings(erpType).mappings;
+      : (template ?? getDefaultFieldMappings(erpType).mappings);
 
   const issues = validateMapping(erpType, mappings);
   const erpName = SUPPORTED_ERPS.find((e) => e.id === erpType)?.name ?? erpType;
