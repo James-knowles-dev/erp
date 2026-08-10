@@ -6,6 +6,7 @@ import { getConnection, getFieldMappings, loadErpCredentials } from "../models/c
 import { createAdapter, getDefaultFieldMappings } from "../adapters/registry.server";
 import { shopifyOrderToCanonical, type ShopifyOrderPayload } from "./shopifyToCanonical";
 import { logActivity } from "./activityLog.server";
+import { dispatchEvent } from "./webhookDispatch.server";
 
 // Runs in-process alongside the web app for now (per erp-connector-build-plan.md's Milestone 3
 // worker-deploy decision) rather than as the separate Railway service the dev spec's architecture
@@ -71,6 +72,11 @@ async function processJob(job: Job<{ syncJobId: string }>): Promise<void> {
       "order_synced",
       `Order ${canonicalOrder.id} synced to ${connection.erpType} as ${documentRef.documentType} ${documentRef.documentId}.`,
     );
+    await dispatchEvent(connection.id, "order_synced", {
+      shopifyOrderId: canonicalOrder.id,
+      erpDocumentType: documentRef.documentType,
+      erpDocumentId: documentRef.documentId,
+    });
     return;
   }
 
@@ -108,6 +114,14 @@ if (!global.__syncWorker) {
         : `Order sync for ${syncJob.shopifyReferenceId} failed (attempt ${job.attemptsMade}), will retry: ${err.message}`,
       attemptsExhausted ? "error" : "warning",
     );
+    // Fired only once retries are exhausted -- a transient failure that's about to retry isn't
+    // the "sync failed" event product spec §7.7 describes an agency wanting to react to.
+    if (attemptsExhausted) {
+      await dispatchEvent(syncJob.connectionId, "sync_failed", {
+        shopifyOrderId: syncJob.shopifyReferenceId,
+        error: err.message,
+      });
+    }
   });
 
   global.__syncWorker = worker;

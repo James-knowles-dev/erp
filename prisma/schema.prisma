@@ -72,11 +72,17 @@ model ErpConnection {
   // once this is set, matching "free sandbox/dry-run usage" until go-live (product spec §9).
   backfillWindow String?   @map("backfill_window") // 'none' | '30d' | '90d' | custom ISO range
   wentLiveAt     DateTime? @map("went_live_at")
+  // Added building Milestone 6's extensibility hooks (product spec §7.7). Hashed like a
+  // password, not encrypted -- we only ever need to verify a presented key against this, never
+  // read the real value back out, so a one-way hash is the right primitive, not reversible
+  // encryption. The plaintext key is shown to the merchant exactly once, at generation time.
+  apiKeyHash String? @unique @map("api_key_hash")
 
   fieldMappings          FieldMapping[]
   edgeCaseRules          EdgeCaseRule[]
   syncJobs               SyncJob[]
   reconciliationRecords  ReconciliationRecord[]
+  webhookSubscriptions   WebhookSubscription[]
   activityLogs           ActivityLog[]
 
   @@map("erp_connections")
@@ -158,4 +164,22 @@ model ActivityLog {
 
   @@index([connectionId, occurredAt])
   @@map("activity_log")
+}
+
+// Not in the original dev spec's §5 schema -- added building Milestone 6's extensibility hooks
+// (product spec §7.7): "expose events... that an agency's own script or middleware can subscribe
+// to." eventTypes is a comma-separated list (order_received | order_synced | sync_failed) rather
+// than a normalized join table, matching the simplicity of edge_case_rules' own rule_key/
+// rule_value pattern elsewhere in this schema.
+model WebhookSubscription {
+  id             String        @id @default(uuid())
+  connectionId   String        @map("connection_id")
+  connection     ErpConnection @relation(fields: [connectionId], references: [id])
+  url            String
+  eventTypes     String        @map("event_types")
+  secretEncrypted String       @map("secret_encrypted") // HMAC-signs outgoing deliveries
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  @@index([connectionId])
+  @@map("webhook_subscriptions")
 }

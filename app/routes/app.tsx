@@ -25,6 +25,7 @@ export default function App() {
           Home
         </Link>
         <Link to="/app/activity">Activity</Link>
+        <Link to="/app/settings">Settings</Link>
       </NavMenu>
       <Outlet />
     </AppProvider>

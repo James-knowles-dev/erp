@@ -3,6 +3,7 @@ import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { enqueueSyncJob } from "../sync/queue.server";
 import { logActivity } from "../sync/activityLog.server";
+import { dispatchEvent } from "../sync/webhookDispatch.server";
 import type { ShopifyOrderPayload } from "../sync/shopifyToCanonical";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -38,6 +39,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       "order_received",
       `Order ${order.id} received, queued for sync to ${connection.erpType}.`,
     );
+    await dispatchEvent(connection.id, "order_received", { shopifyOrderId: String(order.id) });
   }
 
   return new Response();

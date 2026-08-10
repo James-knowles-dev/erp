@@ -12,6 +12,7 @@ import { addDocumentResponseHeaders } from "./shopify.server";
 // a dedicated worker process.
 import "./sync/worker.server";
 import "./sync/scheduler.server";
+import "./sync/webhookDispatch.server";
 
 export const streamTimeout = 5000;
 
