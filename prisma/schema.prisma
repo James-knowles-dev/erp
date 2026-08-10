@@ -77,6 +77,11 @@ model ErpConnection {
   // read the real value back out, so a one-way hash is the right primitive, not reversible
   // encryption. The plaintext key is shown to the merchant exactly once, at generation time.
   apiKeyHash String? @unique @map("api_key_hash")
+  // Added building Milestone 7 (dev spec §14, "Parallel-run mode"): distinct from wentLiveAt --
+  // a merchant migrating off an existing connector can start shadow-syncing (orders are received
+  // and transformed, but never actually pushed to the ERP) before committing to cutover. Set
+  // without wentLiveAt: shadow mode. Both set: live. Neither: nothing syncs at all.
+  shadowModeStartedAt DateTime? @map("shadow_mode_started_at")
 
   fieldMappings          FieldMapping[]
   edgeCaseRules          EdgeCaseRule[]
@@ -131,6 +136,12 @@ model SyncJob {
   payload             Json?
   createdAt           DateTime  @default(now()) @map("created_at")
   completedAt         DateTime? @map("completed_at")
+  // Added building Milestone 7: 'live' pushes to the ERP as normal; 'shadow' runs the same
+  // transform/validation but never calls the adapter's push methods (dev spec §14's parallel-run
+  // mode) -- set once at enqueue time from the connection's state, so the worker doesn't need to
+  // re-derive it and a job's behavior can't change mid-flight if the connection's mode changes
+  // while it's queued.
+  mode                String    @default("live")
 
   @@index([connectionId, entityType, shopifyReferenceId, status])
   @@map("sync_jobs")

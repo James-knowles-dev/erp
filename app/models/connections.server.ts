@@ -116,3 +116,24 @@ export async function setBackfillWindow(connectionId: string, backfillWindow: st
 export async function markConnectionLive(connectionId: string) {
   return db.erpConnection.update({ where: { id: connectionId }, data: { wentLiveAt: new Date() } });
 }
+
+// Milestone 7 (dev spec §14): starts shadow-syncing without pushing to the ERP or starting
+// billing -- distinct from markConnectionLive, which does both.
+export async function startParallelRun(connectionId: string) {
+  return db.erpConnection.update({
+    where: { id: connectionId },
+    data: { shadowModeStartedAt: new Date() },
+  });
+}
+
+// The mode a newly-enqueued sync job should run in, given a connection's current state: live if
+// it's gone live, shadow if only parallel-run has started, or null if neither -- meaning the
+// caller shouldn't enqueue anything at all.
+export function syncModeForConnection(connection: {
+  wentLiveAt: Date | null;
+  shadowModeStartedAt: Date | null;
+}): "live" | "shadow" | null {
+  if (connection.wentLiveAt) return "live";
+  if (connection.shadowModeStartedAt) return "shadow";
+  return null;
+}

@@ -20,6 +20,11 @@ export interface EnqueueSyncJobInput {
   direction: "shopify_to_erp" | "erp_to_shopify";
   shopifyReferenceId: string;
   payload: Prisma.InputJsonValue;
+  // 'live' pushes to the ERP; 'shadow' runs the same transform/validation but never calls the
+  // adapter's push methods (Milestone 7, dev spec §14's parallel-run mode). Required, not
+  // defaulted -- every call site should have already decided this from the connection's state
+  // (see syncModeForConnection in connections.server.ts) rather than silently assuming live.
+  mode: "live" | "shadow";
 }
 
 // Idempotency per erp-connector-dev-spec.md §7: a webhook redelivery for work already
@@ -55,6 +60,7 @@ export async function enqueueSyncJob(
       shopifyReferenceId: input.shopifyReferenceId,
       status: "queued",
       payload: input.payload,
+      mode: input.mode,
     },
   });
 

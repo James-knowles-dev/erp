@@ -28,18 +28,10 @@ async function processJob(job: Job<{ syncJobId: string }>): Promise<void> {
   });
 
   const connection = await getConnection(syncJob.connectionId);
-  if (!connection || !connection.wentLiveAt) {
-    // Defense-in-depth: the webhook receiver already gates enqueueing on wentLiveAt, so this
-    // shouldn't happen in practice, but a job shouldn't push to the ERP if it somehow does.
-    throw new Error(`Connection ${syncJob.connectionId} is not live; refusing to push.`);
+  if (!connection || connection.status === "disabled") {
+    // Defense-in-depth: a merchant could disconnect between enqueue and processing.
+    throw new Error(`Connection ${syncJob.connectionId} is disabled or missing; refusing to process.`);
   }
-
-  const credentials = await loadErpCredentials(connection.id);
-  if (!credentials) throw new Error(`No stored ERP credentials for connection ${connection.id}.`);
-
-  const adapter = createAdapter(connection.erpType);
-  const auth = await adapter.authenticate({ authType: "oauth2", values: { ...credentials } });
-  if (!auth.success) throw new Error(`ERP re-authentication failed: ${auth.message}`);
 
   const savedMappings = await getFieldMappings(connection.id);
   const mapping =
@@ -52,35 +44,66 @@ async function processJob(job: Job<{ syncJobId: string }>): Promise<void> {
         }))
       : getDefaultFieldMappings(connection.erpType).mappings;
 
-  if (syncJob.entityType === "order") {
-    const canonicalOrder = shopifyOrderToCanonical(
-      connection.shopId,
-      syncJob.payload as unknown as ShopifyOrderPayload,
-    );
-    const documentRef = await adapter.pushOrder(canonicalOrder, mapping);
+  if (syncJob.entityType !== "order") {
+    throw new Error(`No processor implemented yet for entityType "${syncJob.entityType}".`);
+  }
 
+  const canonicalOrder = shopifyOrderToCanonical(
+    connection.shopId,
+    syncJob.payload as unknown as ShopifyOrderPayload,
+  );
+
+  // syncJob.mode was decided at enqueue time from the connection's state then, not re-derived
+  // here -- a connection that goes live mid-flight for an already-queued shadow job shouldn't
+  // retroactively push something that was queued to be logged-only (see queue.server.ts's
+  // comment on EnqueueSyncJobInput.mode).
+  if (syncJob.mode === "shadow") {
+    // Milestone 7 parallel-run mode (dev spec §14): "writing to a staging area or dry-run log
+    // only, not actually pushing to the ERP." Logs the canonical order rather than each adapter's
+    // ERP-native payload shape -- that transform is adapter-internal (inside pushOrder itself),
+    // not exposed generically through ERPAdapter, so the canonical form is what's available to
+    // show without breaking that separation. Still useful for comparison: SKUs, quantities,
+    // customer, totals are all visible even without the exact ERP-native JSON.
     await db.syncJob.update({
       where: { id: syncJob.id },
-      data: { status: "success", erpDocumentRef: documentRef.documentId, completedAt: new Date() },
-    });
-    await db.erpConnection.update({
-      where: { id: connection.id },
-      data: { lastSuccessfulSyncAt: new Date() },
+      data: { status: "success", completedAt: new Date() },
     });
     await logActivity(
       connection.id,
-      "order_synced",
-      `Order ${canonicalOrder.id} synced to ${connection.erpType} as ${documentRef.documentType} ${documentRef.documentId}.`,
+      "shadow_sync",
+      `[Shadow] Order ${canonicalOrder.id} would sync to ${connection.erpType}. ` +
+        `Canonical payload: ${JSON.stringify(canonicalOrder)}`,
     );
-    await dispatchEvent(connection.id, "order_synced", {
-      shopifyOrderId: canonicalOrder.id,
-      erpDocumentType: documentRef.documentType,
-      erpDocumentId: documentRef.documentId,
-    });
     return;
   }
 
-  throw new Error(`No processor implemented yet for entityType "${syncJob.entityType}".`);
+  const credentials = await loadErpCredentials(connection.id);
+  if (!credentials) throw new Error(`No stored ERP credentials for connection ${connection.id}.`);
+
+  const adapter = createAdapter(connection.erpType);
+  const auth = await adapter.authenticate({ authType: "oauth2", values: { ...credentials } });
+  if (!auth.success) throw new Error(`ERP re-authentication failed: ${auth.message}`);
+
+  const documentRef = await adapter.pushOrder(canonicalOrder, mapping);
+
+  await db.syncJob.update({
+    where: { id: syncJob.id },
+    data: { status: "success", erpDocumentRef: documentRef.documentId, completedAt: new Date() },
+  });
+  await db.erpConnection.update({
+    where: { id: connection.id },
+    data: { lastSuccessfulSyncAt: new Date() },
+  });
+  await logActivity(
+    connection.id,
+    "order_synced",
+    `Order ${canonicalOrder.id} synced to ${connection.erpType} as ${documentRef.documentType} ${documentRef.documentId}.`,
+  );
+  await dispatchEvent(connection.id, "order_synced", {
+    shopifyOrderId: canonicalOrder.id,
+    erpDocumentType: documentRef.documentType,
+    erpDocumentId: documentRef.documentId,
+  });
 }
 
 declare global {

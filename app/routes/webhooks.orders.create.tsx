@@ -4,6 +4,7 @@ import db from "../db.server";
 import { enqueueSyncJob } from "../sync/queue.server";
 import { logActivity } from "../sync/activityLog.server";
 import { dispatchEvent } from "../sync/webhookDispatch.server";
+import { syncModeForConnection } from "../models/connections.server";
 import type { ShopifyOrderPayload } from "../sync/shopifyToCanonical";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -19,10 +20,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     orderBy: { connectedAt: "desc" },
   });
 
-  // Not connected, or connected but hasn't gone live (wizard step 8) yet -- acknowledge without
+  // Not connected, or connected but neither live nor shadow-syncing -- acknowledge without
   // enqueueing. Steps 1-7 stay free per product spec §9; nothing should push to the ERP before
-  // go-live.
-  if (!connection || !connection.wentLiveAt) return new Response();
+  // go-live or parallel-run has started (Milestone 7, dev spec §14).
+  const mode = connection && syncModeForConnection(connection);
+  if (!connection || !mode) return new Response();
 
   const order = payload as unknown as ShopifyOrderPayload;
   const { enqueued } = await enqueueSyncJob({
@@ -31,6 +33,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     direction: "shopify_to_erp",
     shopifyReferenceId: String(order.id),
     payload: payload,
+    mode,
   });
 
   if (enqueued) {

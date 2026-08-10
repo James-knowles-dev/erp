@@ -301,11 +301,15 @@ CREATE TABLE erp_connections (
   backfill_window TEXT,                -- added in Milestone 3: 'none' | '30d' | '90d' | custom ISO
                                         -- range -- §6 lists a PUT .../backfill-window endpoint but
                                         -- the original schema had nowhere to persist its value
-  went_live_at TIMESTAMPTZ             -- added in Milestone 3: distinct from 'active' status
+  went_live_at TIMESTAMPTZ,            -- added in Milestone 3: distinct from 'active' status
                                         -- (Milestone 2, OAuth succeeded) -- this is wizard step 8
                                         -- specifically; the sync worker only pushes to the ERP
                                         -- once this is set, keeping steps 1-7 free per product
                                         -- spec §9
+  shadow_mode_started_at TIMESTAMPTZ   -- added in Milestone 7 (§14 below): set without
+                                        -- went_live_at means shadow-syncing (orders transformed
+                                        -- and logged, never pushed) during a parallel run; both
+                                        -- set means live
 );
 
 CREATE TABLE field_mappings (
@@ -336,7 +340,9 @@ CREATE TABLE sync_jobs (
   last_error TEXT,
   payload JSONB,
   created_at TIMESTAMPTZ,
-  completed_at TIMESTAMPTZ
+  completed_at TIMESTAMPTZ,
+  mode TEXT NOT NULL DEFAULT 'live'   -- added in Milestone 7: 'live' | 'shadow' -- set once at
+                                       -- enqueue time from the connection's state (§14)
 );
 
 CREATE TABLE reconciliation_records (

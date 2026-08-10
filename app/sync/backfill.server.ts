@@ -38,6 +38,10 @@ export async function runBackfill(
       direction: "shopify_to_erp",
       shopifyReferenceId: String(payload.id),
       payload: payload as unknown as Prisma.InputJsonValue,
+      // Backfill only ever runs from the go-live action, after the connection is already marked
+      // live (see app.connect.$erpType.golive.tsx) -- never called for a parallel-run/shadow-only
+      // connection, so this is always live, not derived per-job.
+      mode: "live",
     });
     if (result.enqueued) enqueued += 1;
   }
