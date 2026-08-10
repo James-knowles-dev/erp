@@ -7,9 +7,11 @@ import {
 } from "@remix-run/node";
 import { isbot } from "isbot";
 import { addDocumentResponseHeaders } from "./shopify.server";
-// Side-effecting import: boots the in-process sync worker exactly once when the server starts.
-// See app/sync/worker.server.ts for why this lives here instead of a dedicated worker process.
+// Side-effecting imports: boot the in-process sync worker and reconciliation scheduler exactly
+// once when the server starts. See app/sync/worker.server.ts for why this lives here instead of
+// a dedicated worker process.
 import "./sync/worker.server";
+import "./sync/scheduler.server";
 
 export const streamTimeout = 5000;
 

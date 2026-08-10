@@ -73,9 +73,11 @@ model ErpConnection {
   backfillWindow String?   @map("backfill_window") // 'none' | '30d' | '90d' | custom ISO range
   wentLiveAt     DateTime? @map("went_live_at")
 
-  fieldMappings  FieldMapping[]
-  edgeCaseRules  EdgeCaseRule[]
-  syncJobs       SyncJob[]
+  fieldMappings          FieldMapping[]
+  edgeCaseRules          EdgeCaseRule[]
+  syncJobs               SyncJob[]
+  reconciliationRecords  ReconciliationRecord[]
+  activityLogs           ActivityLog[]
 
   @@map("erp_connections")
 }
@@ -126,4 +128,34 @@ model SyncJob {
 
   @@index([connectionId, entityType, shopifyReferenceId, status])
   @@map("sync_jobs")
+}
+
+// Matches `reconciliation_records` in erp-connector-dev-spec.md §5.
+model ReconciliationRecord {
+  id                 String    @id @default(uuid())
+  connectionId       String    @map("connection_id")
+  connection         ErpConnection @relation(fields: [connectionId], references: [id])
+  shopifyOrderId     String    @map("shopify_order_id")
+  shopifyTotal       Decimal?  @map("shopify_total")
+  erpTotal           Decimal?  @map("erp_total")
+  status             String // 'matched' | 'discrepancy' | 'pending'
+  discrepancyReason  String?   @map("discrepancy_reason")
+  checkedAt          DateTime  @default(now()) @map("checked_at")
+
+  @@index([connectionId, status])
+  @@map("reconciliation_records")
+}
+
+// Matches `activity_log` in erp-connector-dev-spec.md §5.
+model ActivityLog {
+  id           String        @id @default(uuid())
+  connectionId String        @map("connection_id")
+  connection   ErpConnection @relation(fields: [connectionId], references: [id])
+  eventType    String        @map("event_type")
+  message      String
+  severity     String // 'info' | 'warning' | 'error'
+  occurredAt   DateTime      @default(now()) @map("occurred_at")
+
+  @@index([connectionId, occurredAt])
+  @@map("activity_log")
 }

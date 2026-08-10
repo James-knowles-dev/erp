@@ -2,6 +2,7 @@ import type { ActionFunctionArgs } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { enqueueSyncJob } from "../sync/queue.server";
+import { logActivity } from "../sync/activityLog.server";
 import type { ShopifyOrderPayload } from "../sync/shopifyToCanonical";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -23,13 +24,21 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (!connection || !connection.wentLiveAt) return new Response();
 
   const order = payload as unknown as ShopifyOrderPayload;
-  await enqueueSyncJob({
+  const { enqueued } = await enqueueSyncJob({
     connectionId: connection.id,
     entityType: "order",
     direction: "shopify_to_erp",
     shopifyReferenceId: String(order.id),
     payload: payload,
   });
+
+  if (enqueued) {
+    await logActivity(
+      connection.id,
+      "order_received",
+      `Order ${order.id} received, queued for sync to NetSuite.`,
+    );
+  }
 
   return new Response();
 };

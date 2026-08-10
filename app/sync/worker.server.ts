@@ -6,6 +6,7 @@ import { getConnection, getFieldMappings, loadNetSuiteCredentials } from "../mod
 import { NetSuiteAdapter } from "../adapters/netsuite/adapter.server";
 import { getDefaultFieldMappings } from "../adapters/netsuite/mapping";
 import { shopifyOrderToCanonical, type ShopifyOrderPayload } from "./shopifyToCanonical";
+import { logActivity } from "./activityLog.server";
 
 // Runs in-process alongside the web app for now (per erp-connector-build-plan.md's Milestone 3
 // worker-deploy decision) rather than as the separate Railway service the dev spec's architecture
@@ -66,6 +67,11 @@ async function processJob(job: Job<{ syncJobId: string }>): Promise<void> {
       where: { id: connection.id },
       data: { lastSuccessfulSyncAt: new Date() },
     });
+    await logActivity(
+      connection.id,
+      "order_synced",
+      `Order ${canonicalOrder.id} synced to NetSuite as ${documentRef.documentType} ${documentRef.documentId}.`,
+    );
     return;
   }
 
@@ -88,13 +94,21 @@ if (!global.__syncWorker) {
   worker.on("failed", async (job, err) => {
     if (!job) return;
     const attemptsExhausted = job.attemptsMade >= (job.opts.attempts ?? 1);
-    await db.syncJob.update({
+    const syncJob = await db.syncJob.update({
       where: { id: job.data.syncJobId },
       data: {
         status: attemptsExhausted ? "dead_letter" : "failed",
         lastError: err.message,
       },
     });
+    await logActivity(
+      syncJob.connectionId,
+      attemptsExhausted ? "sync_dead_letter" : "sync_failed",
+      attemptsExhausted
+        ? `Order sync for ${syncJob.shopifyReferenceId} failed after ${job.attemptsMade} attempts and needs manual review: ${err.message}`
+        : `Order sync for ${syncJob.shopifyReferenceId} failed (attempt ${job.attemptsMade}), will retry: ${err.message}`,
+      attemptsExhausted ? "error" : "warning",
+    );
   });
 
   global.__syncWorker = worker;
