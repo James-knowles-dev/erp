@@ -58,7 +58,10 @@ model ErpConnection {
   shop                  Shop      @relation(fields: [shopId], references: [id])
   erpType               String    @map("erp_type") // 'netsuite' | 'acumatica' | 'business_central' | 'sage_intacct' | 'sage_300' | 'brightpearl'
   environment           String // 'sandbox' | 'production'
-  credentialsEncrypted  String    @map("credentials_encrypted")
+  // Nullable, unlike the NOT NULL in the original erp-connector-dev-spec.md §5 SQL -- found
+  // while building the wizard (Milestone 2): a connection legitimately exists in 'pending'
+  // status (step 1, ERP picked) before any credentials are collected (step 2).
+  credentialsEncrypted  String?   @map("credentials_encrypted")
   status                String // 'pending' | 'active' | 'error' | 'disabled'
   connectedAt           DateTime? @map("connected_at")
   lastSuccessfulSyncAt  DateTime? @map("last_successful_sync_at")

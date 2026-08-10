@@ -293,7 +293,8 @@ CREATE TABLE erp_connections (
   shop_id UUID REFERENCES shops(id),
   erp_type TEXT NOT NULL,             -- 'netsuite' | 'acumatica' | 'business_central' | 'sage_intacct' | 'sage_300' | 'brightpearl'
   environment TEXT NOT NULL,          -- 'sandbox' | 'production'
-  credentials_encrypted TEXT NOT NULL,
+  credentials_encrypted TEXT,         -- nullable: a connection exists in 'pending' status (wizard
+                                       -- step 1) before step 2 collects any credentials
   status TEXT NOT NULL,               -- 'pending' | 'active' | 'error' | 'disabled'
   connected_at TIMESTAMPTZ,
   last_successful_sync_at TIMESTAMPTZ

@@ -1,5 +1,5 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
-import { Page, Layout, Text, Card, BlockStack, Badge, InlineStack } from "@shopify/polaris";
+import { Page, Layout, Text, Card, BlockStack, Badge, InlineStack, Button } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 
@@ -9,9 +9,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return null;
 };
 
-// Placeholder Home route for Milestone 0 (app scaffold, OAuth, embedded shell, billing plumbing).
-// The actual onboarding wizard (ERP select, connect, mapping, etc.) is Milestone 2-3 scope --
-// see erp-connector-spec.md §7.1 and erp-connector-build-plan.md.
+// Home route. The wizard's first four steps (ERP select, connect, environment, field mapping)
+// are live as of Milestone 2 -- steps 5-8 (edge-case rules, backfill, preflight, go live) and
+// the sync engine are Milestone 3, still ahead.
 export default function Index() {
   return (
     <Page>
@@ -23,15 +23,17 @@ export default function Index() {
               <BlockStack gap="300">
                 <InlineStack gap="200" blockAlign="center">
                   <Text as="h2" variant="headingMd">
-                    Setup wizard
+                    Connect your ERP
                   </Text>
-                  <Badge>Coming soon</Badge>
+                  <Badge>Steps 1-4 of 8</Badge>
                 </InlineStack>
                 <Text as="p" variant="bodyMd">
-                  The ERP connection wizard (pick your ERP, connect, map fields, go live) isn't
-                  built yet -- this milestone only covers the app scaffold, OAuth install, and
-                  billing plumbing it will run inside.
+                  Pick your ERP, connect, choose an environment, and map your fields. Going live
+                  (steps 5-8) isn't built yet.
                 </Text>
+                <Button url="/app/connect" variant="primary">
+                  Start setup
+                </Button>
               </BlockStack>
             </Card>
           </Layout.Section>
