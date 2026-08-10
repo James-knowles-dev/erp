@@ -7,8 +7,9 @@ import { authenticate } from "../shopify.server";
 import { getConnection, markConnectionLive } from "../models/connections.server";
 import { requireActiveBillingForGoLive } from "../utils/billing.server";
 import { runBackfill } from "../sync/backfill.server";
+import { SUPPORTED_ERPS } from "../adapters/registry.server";
 
-export const loader = async ({ request }: LoaderFunctionArgs) => {
+export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   await authenticate.admin(request);
   const connectionId = new URL(request.url).searchParams.get("connectionId");
   if (!connectionId) throw redirect("/app/connect");
@@ -16,18 +17,21 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const connection = await getConnection(connectionId);
   if (!connection || connection.status !== "active") throw redirect("/app/connect");
 
+  const erpType = params.erpType!;
+  const erpName = SUPPORTED_ERPS.find((e) => e.id === erpType)?.name ?? erpType;
+
   if (connection.wentLiveAt) {
-    return { connectionId, alreadyLive: true, environment: connection.environment };
+    return { connectionId, alreadyLive: true, environment: connection.environment, erpName };
   }
 
   // May throw a redirect to Shopify's billing approval page; returnUrl brings the merchant back
   // to this exact loader afterward, where billing.require() then resolves normally.
   await requireActiveBillingForGoLive(request, new URL(request.url).toString());
 
-  return { connectionId, alreadyLive: false, environment: connection.environment };
+  return { connectionId, alreadyLive: false, environment: connection.environment, erpName };
 };
 
-export const action = async ({ request }: ActionFunctionArgs) => {
+export const action = async ({ request, params }: ActionFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
   const formData = await request.formData();
   const connectionId = String(formData.get("connectionId"));
@@ -45,12 +49,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   return redirect(
-    `/app/connect/netsuite/golive?connectionId=${connectionId}&backfillEnqueued=${backfillEnqueued}`,
+    `/app/connect/${params.erpType}/golive?connectionId=${connectionId}&backfillEnqueued=${backfillEnqueued}`,
   );
 };
 
 export default function ConnectStepGoLive() {
-  const { connectionId, alreadyLive, environment } = useLoaderData<typeof loader>();
+  const { connectionId, alreadyLive, environment, erpName } = useLoaderData<typeof loader>();
 
   return (
     <Page>
@@ -66,11 +70,11 @@ export default function ConnectStepGoLive() {
                       <Text as="h2" variant="headingMd">
                         You're live
                       </Text>
-                      <Badge tone="success">{`Syncing to NetSuite (${environment})`}</Badge>
+                      <Badge tone="success">{`Syncing to ${erpName} (${environment})`}</Badge>
                     </InlineStack>
                     <Text as="p" variant="bodyMd">
-                      New orders will sync automatically from here. Sync activity and
-                      reconciliation reporting aren't built yet -- that's the next milestone.
+                      New orders will sync automatically from here. Check the Activity page for
+                      sync status and reconciliation results.
                     </Text>
                   </>
                 ) : (
@@ -79,8 +83,7 @@ export default function ConnectStepGoLive() {
                       Step 8 of 8: Go live
                     </Text>
                     <Text as="p" variant="bodyMd">
-                      This flips your connection from dry-run to actually syncing orders to
-                      NetSuite ({environment}). Billing starts now.
+                      {`This flips your connection from dry-run to actually syncing orders to ${erpName} (${environment}). Billing starts now.`}
                     </Text>
                     <Form method="post">
                       <input type="hidden" name="connectionId" value={connectionId} />

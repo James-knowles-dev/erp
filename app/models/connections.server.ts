@@ -1,6 +1,5 @@
 import db from "../db.server";
 import { decrypt, encrypt } from "../utils/encryption.server";
-import type { NetSuiteConfig, NetSuiteTokens } from "../adapters/netsuite/types";
 
 // Wraps the erp_connections table (erp-connector-dev-spec.md §5) with the encrypt/decrypt step
 // so no route handler ever has to remember to do it itself.
@@ -43,25 +42,27 @@ export async function setEnvironment(connectionId: string, environment: "sandbox
   return db.erpConnection.update({ where: { id: connectionId }, data: { environment } });
 }
 
-interface NetSuiteCredentialBundle extends NetSuiteConfig, NetSuiteTokens {}
+// Generic across every adapter -- each ERP's config/token field names differ (NetSuite's
+// accountId vs. Acumatica's instanceUrl), but they're always a flat string-keyed bundle, matching
+// the ERPCredentials.values shape adapters already accept. Adding a third ERP needs zero changes
+// here, which is the point: this is exactly the kind of thing that shouldn't need touching per
+// adapter (see app/adapters/registry.server.ts's header comment).
 
-// Persists just accountId/clientId/clientSecret before the OAuth redirect to NetSuite, so the
-// callback route (a separate request, after the merchant leaves and comes back) can load them
-// back out to complete the token exchange. Status stays 'pending' -- this isn't a real
-// connection yet, just enough state to survive the redirect round-trip. clientSecret is the only
-// genuinely sensitive value here, hence encrypting the whole bundle rather than passing it
-// through the OAuth `state` param (which NetSuite echoes back in a plain query string).
-export async function storePartialNetSuiteConfig(connectionId: string, config: NetSuiteConfig) {
+// Persists partial config (e.g. accountId/clientId/clientSecret, or instanceUrl/clientId/
+// clientSecret) before the OAuth redirect to the ERP, so the callback route (a separate request,
+// after the merchant leaves and comes back) can load it back out to complete the token exchange.
+// Status stays 'pending' -- this isn't a real connection yet, just enough state to survive the
+// redirect round-trip. The client secret is the only genuinely sensitive value here, hence
+// encrypting the whole bundle rather than passing it through the OAuth `state` param (which gets
+// echoed back in a plain query string).
+export async function storePartialErpConfig(connectionId: string, config: Record<string, string>) {
   return db.erpConnection.update({
     where: { id: connectionId },
     data: { credentialsEncrypted: encrypt(JSON.stringify(config)) },
   });
 }
 
-export async function storeNetSuiteCredentials(
-  connectionId: string,
-  credentials: NetSuiteCredentialBundle,
-) {
+export async function storeErpCredentials(connectionId: string, credentials: Record<string, string>) {
   return db.erpConnection.update({
     where: { id: connectionId },
     data: {
@@ -72,12 +73,10 @@ export async function storeNetSuiteCredentials(
   });
 }
 
-export async function loadNetSuiteCredentials(
-  connectionId: string,
-): Promise<NetSuiteCredentialBundle | null> {
+export async function loadErpCredentials(connectionId: string): Promise<Record<string, string> | null> {
   const connection = await db.erpConnection.findUnique({ where: { id: connectionId } });
   if (!connection?.credentialsEncrypted) return null;
-  return JSON.parse(decrypt(connection.credentialsEncrypted)) as NetSuiteCredentialBundle;
+  return JSON.parse(decrypt(connection.credentialsEncrypted)) as Record<string, string>;
 }
 
 export async function setConnectionStatus(connectionId: string, status: string) {

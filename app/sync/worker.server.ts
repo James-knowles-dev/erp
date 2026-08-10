@@ -2,9 +2,8 @@ import { Worker, type Job } from "bullmq";
 import db from "../db.server";
 import { getRedisConnection } from "./redis.server";
 import { SYNC_QUEUE_NAME } from "./queue.server";
-import { getConnection, getFieldMappings, loadNetSuiteCredentials } from "../models/connections.server";
-import { NetSuiteAdapter } from "../adapters/netsuite/adapter.server";
-import { getDefaultFieldMappings } from "../adapters/netsuite/mapping";
+import { getConnection, getFieldMappings, loadErpCredentials } from "../models/connections.server";
+import { createAdapter, getDefaultFieldMappings } from "../adapters/registry.server";
 import { shopifyOrderToCanonical, type ShopifyOrderPayload } from "./shopifyToCanonical";
 import { logActivity } from "./activityLog.server";
 
@@ -34,12 +33,12 @@ async function processJob(job: Job<{ syncJobId: string }>): Promise<void> {
     throw new Error(`Connection ${syncJob.connectionId} is not live; refusing to push.`);
   }
 
-  const credentials = await loadNetSuiteCredentials(connection.id);
-  if (!credentials) throw new Error(`No stored NetSuite credentials for connection ${connection.id}.`);
+  const credentials = await loadErpCredentials(connection.id);
+  if (!credentials) throw new Error(`No stored ERP credentials for connection ${connection.id}.`);
 
-  const adapter = new NetSuiteAdapter();
+  const adapter = createAdapter(connection.erpType);
   const auth = await adapter.authenticate({ authType: "oauth2", values: { ...credentials } });
-  if (!auth.success) throw new Error(`NetSuite re-authentication failed: ${auth.message}`);
+  if (!auth.success) throw new Error(`ERP re-authentication failed: ${auth.message}`);
 
   const savedMappings = await getFieldMappings(connection.id);
   const mapping =
@@ -50,7 +49,7 @@ async function processJob(job: Job<{ syncJobId: string }>): Promise<void> {
           transformRule: m.transformRule ?? undefined,
           isRequired: m.isRequired,
         }))
-      : getDefaultFieldMappings().mappings;
+      : getDefaultFieldMappings(connection.erpType).mappings;
 
   if (syncJob.entityType === "order") {
     const canonicalOrder = shopifyOrderToCanonical(
@@ -70,7 +69,7 @@ async function processJob(job: Job<{ syncJobId: string }>): Promise<void> {
     await logActivity(
       connection.id,
       "order_synced",
-      `Order ${canonicalOrder.id} synced to NetSuite as ${documentRef.documentType} ${documentRef.documentId}.`,
+      `Order ${canonicalOrder.id} synced to ${connection.erpType} as ${documentRef.documentType} ${documentRef.documentId}.`,
     );
     return;
   }

@@ -6,33 +6,36 @@ import { Page, Layout, Card, BlockStack, Text, Button, ChoiceList } from "@shopi
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { getConnection, getEdgeCaseRules, saveEdgeCaseRules } from "../models/connections.server";
+import { SUPPORTED_ERPS } from "../adapters/registry.server";
 
 // Product spec §7.1 step 5: plain yes/no or multiple-choice questions, not technical settings.
 // Only the two rule keys named as examples in erp-connector-dev-spec.md §5 are asked here --
 // the full edge-case question set (e.g. order-edit handling, multi-currency rate source) is
 // broader than what's built so far and left for a follow-up pass.
-const QUESTIONS = [
-  {
-    key: "backorder_behavior",
-    title: "If an order can't fully ship, what should happen?",
-    default: "block",
-    choices: [
-      { label: "Block the order until it can be fully fulfilled", value: "block" },
-      { label: "Allow it to oversell", value: "allow_oversell" },
-    ],
-  },
-  {
-    key: "guest_customer_handling",
-    title: "If a customer doesn't exist yet in NetSuite, should we create one automatically?",
-    default: "use_default_account",
-    choices: [
-      { label: "Yes, create a new NetSuite customer record", value: "create_erp_customer" },
-      { label: "No, route to a default account instead", value: "use_default_account" },
-    ],
-  },
-];
+function buildQuestions(erpName: string) {
+  return [
+    {
+      key: "backorder_behavior",
+      title: "If an order can't fully ship, what should happen?",
+      default: "block",
+      choices: [
+        { label: "Block the order until it can be fully fulfilled", value: "block" },
+        { label: "Allow it to oversell", value: "allow_oversell" },
+      ],
+    },
+    {
+      key: "guest_customer_handling",
+      title: `If a customer doesn't exist yet in ${erpName}, should we create one automatically?`,
+      default: "use_default_account",
+      choices: [
+        { label: `Yes, create a new ${erpName} customer record`, value: "create_erp_customer" },
+        { label: "No, route to a default account instead", value: "use_default_account" },
+      ],
+    },
+  ];
+}
 
-export const loader = async ({ request }: LoaderFunctionArgs) => {
+export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   await authenticate.admin(request);
   const connectionId = new URL(request.url).searchParams.get("connectionId");
   if (!connectionId) throw redirect("/app/connect");
@@ -40,29 +43,32 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const connection = await getConnection(connectionId);
   if (!connection || connection.status !== "active") throw redirect("/app/connect");
 
+  const erpType = params.erpType!;
+  const erpName = SUPPORTED_ERPS.find((e) => e.id === erpType)?.name ?? erpType;
   const saved = await getEdgeCaseRules(connectionId);
-  return { connectionId, saved };
+  return { connectionId, saved, erpName };
 };
 
-export const action = async ({ request }: ActionFunctionArgs) => {
+export const action = async ({ request, params }: ActionFunctionArgs) => {
   await authenticate.admin(request);
   const formData = await request.formData();
   const connectionId = String(formData.get("connectionId"));
   if (!connectionId) throw new Response("Missing connectionId", { status: 400 });
 
   const rules: Record<string, string> = {};
-  for (const q of QUESTIONS) {
+  for (const q of buildQuestions("")) {
     rules[q.key] = String(formData.get(q.key) ?? q.default);
   }
 
   await saveEdgeCaseRules(connectionId, rules);
-  return redirect(`/app/connect/netsuite/backfill?connectionId=${connectionId}`);
+  return redirect(`/app/connect/${params.erpType}/backfill?connectionId=${connectionId}`);
 };
 
 export default function ConnectStepEdgeCases() {
-  const { connectionId, saved } = useLoaderData<typeof loader>();
+  const { connectionId, saved, erpName } = useLoaderData<typeof loader>();
+  const questions = buildQuestions(erpName);
   const [answers, setAnswers] = useState<Record<string, string>>(
-    Object.fromEntries(QUESTIONS.map((q) => [q.key, saved[q.key] ?? q.default])),
+    Object.fromEntries(questions.map((q) => [q.key, saved[q.key] ?? q.default])),
   );
 
   return (
@@ -79,7 +85,7 @@ export default function ConnectStepEdgeCases() {
                 <Form method="post">
                   <input type="hidden" name="connectionId" value={connectionId} />
                   <BlockStack gap="400">
-                    {QUESTIONS.map((q) => (
+                    {questions.map((q) => (
                       <ChoiceList
                         key={q.key}
                         title={q.title}
@@ -88,7 +94,7 @@ export default function ConnectStepEdgeCases() {
                         onChange={([value]) => setAnswers((prev) => ({ ...prev, [q.key]: value }))}
                       />
                     ))}
-                    {QUESTIONS.map((q) => (
+                    {questions.map((q) => (
                       <input key={q.key} type="hidden" name={q.key} value={answers[q.key]} />
                     ))}
                     <Button submit variant="primary">

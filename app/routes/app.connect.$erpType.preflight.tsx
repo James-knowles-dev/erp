@@ -5,11 +5,12 @@ import { Page, Layout, Card, BlockStack, Text, Button, Banner, List } from "@sho
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { getConnection, getFieldMappings } from "../models/connections.server";
-import { getDefaultFieldMappings } from "../adapters/netsuite/mapping";
+import { getDefaultFieldMappings } from "../adapters/registry.server";
 import { runPreflightCheck } from "../sync/preflight.server";
 
-export const loader = async ({ request }: LoaderFunctionArgs) => {
+export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
+  const erpType = params.erpType!;
   const connectionId = new URL(request.url).searchParams.get("connectionId");
   if (!connectionId) throw redirect("/app/connect");
 
@@ -25,15 +26,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           transformRule: m.transformRule ?? undefined,
           isRequired: m.isRequired,
         }))
-      : getDefaultFieldMappings().mappings;
+      : getDefaultFieldMappings(erpType).mappings;
 
-  const report = await runPreflightCheck(admin, connection.shopId, connectionId, mapping);
+  const report = await runPreflightCheck(admin, connection.shopId, connectionId, erpType, mapping);
 
-  return { connectionId, report };
+  return { connectionId, erpType, report };
 };
 
 export default function ConnectStepPreflight() {
-  const { connectionId, report } = useLoaderData<typeof loader>();
+  const { connectionId, erpType, report } = useLoaderData<typeof loader>();
 
   return (
     <Page>
@@ -71,7 +72,7 @@ export default function ConnectStepPreflight() {
                     </BlockStack>
                   </Banner>
                 )}
-                <Button url={`/app/connect/netsuite/golive?connectionId=${connectionId}`} variant="primary">
+                <Button url={`/app/connect/${erpType}/golive?connectionId=${connectionId}`} variant="primary">
                   Continue
                 </Button>
               </BlockStack>

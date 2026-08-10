@@ -17,17 +17,17 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { getConnection, getFieldMappings, saveFieldMappings } from "../models/connections.server";
-import { getDefaultFieldMappings, validateMapping } from "../adapters/netsuite/mapping";
+import { getDefaultFieldMappings, validateMapping, SUPPORTED_ERPS } from "../adapters/registry.server";
 import type { FieldMapping } from "../adapters/types";
 
 // Scoped-down first version of product spec §7.1 step 4: a single "Order" section (Customer/
-// Product/Inventory default templates don't exist yet -- only Milestone 1 built order mappings),
-// a plain editable text field per row rather than a dropdown enumerating NetSuite's schema (no
-// schema introspection built yet), and no live preview value from a real order (needs the
-// read_orders scope, not requested as of Milestone 0's least-privilege scope list). All named
-// here rather than silently shipped as if this were the full spec'd experience.
-export const loader = async ({ request }: LoaderFunctionArgs) => {
+// Product/Inventory default templates don't exist yet), a plain editable text field per row
+// rather than a dropdown enumerating each ERP's schema (no schema introspection built yet), and
+// no live preview value from a real order (needs the read_orders scope beyond what's requested).
+// All named here rather than silently shipped as if this were the full spec'd experience.
+export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   await authenticate.admin(request);
+  const erpType = params.erpType!;
   const connectionId = new URL(request.url).searchParams.get("connectionId");
   if (!connectionId) throw redirect("/app/connect");
 
@@ -43,37 +43,40 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           transformRule: m.transformRule ?? undefined,
           isRequired: m.isRequired,
         }))
-      : getDefaultFieldMappings().mappings;
+      : getDefaultFieldMappings(erpType).mappings;
 
-  const issues = validateMapping(mappings);
+  const issues = validateMapping(erpType, mappings);
+  const erpName = SUPPORTED_ERPS.find((e) => e.id === erpType)?.name ?? erpType;
 
-  return { connectionId, mappings, issues };
+  return { connectionId, mappings, issues, erpName };
 };
 
-export const action = async ({ request }: ActionFunctionArgs) => {
+export const action = async ({ request, params }: ActionFunctionArgs) => {
   await authenticate.admin(request);
+  const erpType = params.erpType!;
   const formData = await request.formData();
   const connectionId = String(formData.get("connectionId"));
   if (!connectionId) throw new Response("Missing connectionId", { status: 400 });
 
-  const defaults = getDefaultFieldMappings().mappings;
+  const defaults = getDefaultFieldMappings(erpType).mappings;
   const mappings: FieldMapping[] = defaults.map((d) => ({
     ...d,
     erpField: String(formData.get(`mapping.${d.shopifyField}`) ?? d.erpField),
   }));
 
-  const issues = validateMapping(mappings);
+  const issues = validateMapping(erpType, mappings);
   if (issues.some((i) => i.severity === "error")) {
-    // Re-render with errors rather than saving a mapping NetSuite would reject.
-    return { connectionId, mappings, issues };
+    // Re-render with errors rather than saving a mapping the ERP would reject.
+    const erpName = SUPPORTED_ERPS.find((e) => e.id === erpType)?.name ?? erpType;
+    return { connectionId, mappings, issues, erpName };
   }
 
   await saveFieldMappings(connectionId, mappings);
-  return redirect(`/app/connect/netsuite/edgecases?connectionId=${connectionId}`);
+  return redirect(`/app/connect/${erpType}/edgecases?connectionId=${connectionId}`);
 };
 
 export default function ConnectStepMapping() {
-  const { connectionId, mappings, issues } = useLoaderData<typeof loader>();
+  const { connectionId, mappings, issues, erpName } = useLoaderData<typeof loader>();
   const [values, setValues] = useState<Record<string, string>>(
     Object.fromEntries(mappings.map((m) => [m.shopifyField, m.erpField])),
   );
@@ -92,8 +95,7 @@ export default function ConnectStepMapping() {
                   Step 4 of 4: Field mapping
                 </Text>
                 <Text as="p" variant="bodyMd">
-                  Every common field is pre-mapped to NetSuite's standard structure. Adjust the
-                  target field on the right if your NetSuite setup uses something different.
+                  {`Every common field is pre-mapped to ${erpName}'s standard structure. Adjust the target field on the right if your ${erpName} setup uses something different.`}
                 </Text>
                 {errorFields.size > 0 && (
                   <Banner tone="critical" title="These fields need a mapping before you can continue">
@@ -105,7 +107,7 @@ export default function ConnectStepMapping() {
                   <BlockStack gap="300">
                     <IndexTable
                       itemCount={mappings.length}
-                      headings={[{ title: "Shopify field" }, { title: "NetSuite field" }]}
+                      headings={[{ title: "Shopify field" }, { title: `${erpName} field` }]}
                       selectable={false}
                     >
                       {mappings.map((m, index) => (
@@ -120,7 +122,7 @@ export default function ConnectStepMapping() {
                           </IndexTable.Cell>
                           <IndexTable.Cell>
                             <TextField
-                              label={`NetSuite field for ${m.shopifyField}`}
+                              label={`${erpName} field for ${m.shopifyField}`}
                               labelHidden
                               name={`mapping.${m.shopifyField}`}
                               value={values[m.shopifyField] ?? ""}

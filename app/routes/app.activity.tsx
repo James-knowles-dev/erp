@@ -4,6 +4,7 @@ import { Page, Layout, Card, BlockStack, Text, Badge, EmptyState, IndexTable } f
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { getActiveConnectionForShop, getOrCreateShop } from "../models/connections.server";
+import { SUPPORTED_ERPS } from "../adapters/registry.server";
 import db from "../db.server";
 
 const SEVERITY_TONE: Record<string, "info" | "warning" | "critical"> = {
@@ -36,6 +37,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   return {
     connected: true as const,
+    erpName: SUPPORTED_ERPS.find((e) => e.id === connection.erpType)?.name ?? connection.erpType,
     activity: activity.map((a) => ({ ...a, occurredAt: a.occurredAt.toISOString() })),
     discrepancies: discrepancies.map((d) => ({
       ...d,
@@ -51,6 +53,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 // grouped on the same page since the spec presents them together.
 export default function Activity() {
   const data = useLoaderData<typeof loader>();
+  const erpTotalHeading = data.connected ? `${data.erpName} total` : "ERP total";
 
   if (!data.connected) {
     return (
@@ -58,7 +61,7 @@ export default function Activity() {
         <TitleBar title="Activity" />
         <Card>
           <EmptyState heading="Connect an ERP to see activity" image="">
-            <p>Sync and reconciliation activity will show up here once you've connected NetSuite.</p>
+            <p>Sync and reconciliation activity will show up here once you've connected an ERP.</p>
           </EmptyState>
         </Card>
       </Page>
@@ -86,7 +89,7 @@ export default function Activity() {
                     headings={[
                       { title: "Order" },
                       { title: "Shopify total" },
-                      { title: "NetSuite total" },
+                      { title: erpTotalHeading },
                       { title: "Reason" },
                       { title: "Checked" },
                     ]}

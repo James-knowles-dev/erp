@@ -16,12 +16,18 @@ import type { AdminApiContext } from "@shopify/shopify-app-remix/server";
 import type { ErpConnection } from "@prisma/client";
 import db from "../db.server";
 import { logActivity } from "./activityLog.server";
-import { loadNetSuiteCredentials } from "../models/connections.server";
-import { NetSuiteAdapter } from "../adapters/netsuite/adapter.server";
+import { loadErpCredentials } from "../models/connections.server";
+import { createAdapter } from "../adapters/registry.server";
 
 const RECONCILE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const UNCONFIRMED_THRESHOLD_MS = 60 * 60 * 1000; // per §8 step 3: "past a reasonable time threshold"
 const DISCREPANCY_ALERT_THRESHOLD = 0.02; // per §8 step 5: >2% over a rolling 24h
+
+// Neither adapter's getOrderStatus() actually reads documentType (both key off documentId alone)
+// -- but sync_jobs only persists the id, not the type it was pushed as, so this maps erpType to
+// the string each adapter's pushOrder() actually returns, for correctness if that ever changes
+// rather than relying on it staying coincidentally unused.
+const ORDER_DOCUMENT_TYPE: Record<string, string> = { netsuite: "salesOrder", acumatica: "SalesOrder" };
 
 const RECONCILE_ORDERS_QUERY = `#graphql
   query ReconcileOrders($query: String!) {
@@ -53,8 +59,8 @@ export async function runReconciliationForConnection(
   });
   const data = (await response.json()) as { data: { orders: { edges: { node: ReconcileOrderNode }[] } } };
 
-  const credentials = await loadNetSuiteCredentials(connection.id);
-  const adapter = new NetSuiteAdapter();
+  const credentials = await loadErpCredentials(connection.id);
+  const adapter = createAdapter(connection.erpType);
   if (credentials) await adapter.authenticate({ authType: "oauth2", values: { ...credentials } });
 
   let discrepancies = 0;
@@ -90,7 +96,7 @@ export async function runReconciliationForConnection(
     const shopifyTotal = Number(node.currentTotalPriceSet.shopMoney.amount);
     try {
       const orderStatus = await adapter.getOrderStatus({
-        documentType: "salesOrder",
+        documentType: ORDER_DOCUMENT_TYPE[connection.erpType] ?? "unknown",
         documentId: syncJob.erpDocumentRef,
       });
       const erpTotal = orderStatus.total;

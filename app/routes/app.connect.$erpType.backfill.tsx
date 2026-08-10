@@ -24,7 +24,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return { connectionId, backfillWindow: connection.backfillWindow ?? "none" };
 };
 
-export const action = async ({ request }: ActionFunctionArgs) => {
+export const action = async ({ request, params }: ActionFunctionArgs) => {
   await authenticate.admin(request);
   const formData = await request.formData();
   const connectionId = String(formData.get("connectionId"));
@@ -32,7 +32,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (!connectionId) throw new Response("Missing connectionId", { status: 400 });
 
   await setBackfillWindow(connectionId, backfillWindow);
-  return redirect(`/app/connect/netsuite/preflight?connectionId=${connectionId}`);
+  return redirect(`/app/connect/${params.erpType}/preflight?connectionId=${connectionId}`);
 };
 
 export default function ConnectStepBackfill() {

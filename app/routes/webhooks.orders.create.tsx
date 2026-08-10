@@ -36,7 +36,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     await logActivity(
       connection.id,
       "order_received",
-      `Order ${order.id} received, queued for sync to NetSuite.`,
+      `Order ${order.id} received, queued for sync to ${connection.erpType}.`,
     );
   }
 

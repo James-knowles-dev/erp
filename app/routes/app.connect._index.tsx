@@ -5,18 +5,13 @@ import { Page, Layout, Card, BlockStack, Text, Button, InlineStack, Badge } from
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { createConnection, getActiveConnectionForShop, getOrCreateShop } from "../models/connections.server";
+import { SUPPORTED_ERPS } from "../adapters/registry.server";
 
-// Wizard step 1 (product spec §7.1 step 1): pick an ERP. Only NetSuite is built (Milestone 1);
-// the others are shown so the picker doesn't look broken, but aren't selectable yet.
-const SUPPORTED_ERPS = [
-  { id: "netsuite", name: "NetSuite", available: true },
-  { id: "acumatica", name: "Acumatica", available: false },
-  { id: "business_central", name: "Business Central", available: false },
-  { id: "sage_intacct", name: "Sage Intacct", available: false },
-  { id: "sage_300", name: "Sage 300", available: false },
-  { id: "brightpearl", name: "Brightpearl", available: false },
-];
-
+// Wizard step 1 (product spec §7.1 step 1): pick an ERP. NetSuite (Milestone 1) and Acumatica
+// (Milestone 5) are built; the rest are shown so the picker doesn't look broken, but aren't
+// selectable yet. The list itself lives in adapters/registry.server.ts, not here -- this route
+// has no ERP-specific knowledge at all, which is the actual point of Milestone 5's wizard
+// generalization: adding a third ERP means one entry in that registry, not touching this file.
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = await getOrCreateShop(session.shop);
@@ -24,8 +19,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // "Every step can be left and resumed" (product spec §7.1) -- if a connection already exists,
   // send the merchant back into the flow rather than letting them start a second one.
   const existing = await getActiveConnectionForShop(shop.id);
-  if (existing?.erpType === "netsuite") {
-    throw redirect(existing.credentialsEncrypted ? "/app/connect/netsuite/mapping" : "/app/connect/netsuite");
+  if (existing) {
+    throw redirect(
+      existing.credentialsEncrypted
+        ? `/app/connect/${existing.erpType}/mapping`
+        : `/app/connect/${existing.erpType}`,
+    );
   }
 
   return { erps: SUPPORTED_ERPS };
@@ -35,9 +34,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = await getOrCreateShop(session.shop);
   const formData = await request.formData();
-  const erpType = formData.get("erpType");
+  const erpType = String(formData.get("erpType"));
 
-  if (erpType !== "netsuite") {
+  const erp = SUPPORTED_ERPS.find((e) => e.id === erpType);
+  if (!erp?.available) {
     throw new Response("Unsupported ERP", { status: 400 });
   }
 

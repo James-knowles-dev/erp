@@ -11,7 +11,7 @@
 
 import type { AdminApiContext } from "@shopify/shopify-app-remix/server";
 import { shopifyOrderToCanonical, type ShopifyOrderPayload } from "./shopifyToCanonical";
-import { validateMapping } from "../adapters/netsuite/mapping";
+import { validateMapping, SUPPORTED_ERPS } from "../adapters/registry.server";
 import type { FieldMapping } from "../adapters/types";
 import db from "../db.server";
 
@@ -123,29 +123,31 @@ export async function runPreflightCheck(
   admin: AdminApiContext,
   shopId: string,
   connectionId: string,
+  erpType: string,
   mapping: FieldMapping[],
 ): Promise<PreflightReport> {
   const response = await admin.graphql(ORDERS_QUERY, { variables: { first: 50 } });
   const data = (await response.json()) as { data: { orders: { edges: { node: GraphQLOrderNode }[] } } };
   const orders = data.data.orders.edges.map((e) => e.node);
 
-  const mappingIssues = validateMapping(mapping);
+  const mappingIssues = validateMapping(erpType, mapping);
   const mappingErrors = mappingIssues.filter((i) => i.severity === "error").map((i) => i.message);
 
   const issues: PreflightIssue[] = [];
   let cleanCount = 0;
+  const erpName = SUPPORTED_ERPS.find((e) => e.id === erpType)?.name ?? erpType;
 
   for (const node of orders) {
     const reasons: string[] = [...mappingErrors];
     const payload = toShopifyOrderPayload(node);
 
     if (payload.line_items.some((li) => !li.sku)) {
-      reasons.push("One or more line items has no SKU, which NetSuite needs to identify the item.");
+      reasons.push(`One or more line items has no SKU, which ${erpName} needs to identify the item.`);
     }
 
     // Duplicate-detection per erp-connector-dev-spec.md §15: an order that already has a
     // confirmed erp_document_ref (e.g. from a prior connector) would create a duplicate in
-    // NetSuite if synced again.
+    // the ERP if synced again.
     const existingSync = await db.syncJob.findFirst({
       where: {
         connectionId,
@@ -156,7 +158,7 @@ export async function runPreflightCheck(
     });
     if (existingSync) {
       reasons.push(
-        `Already has a NetSuite document (${existingSync.erpDocumentRef}) from a previous sync -- syncing again would duplicate it.`,
+        `Already has a ${erpName} document (${existingSync.erpDocumentRef}) from a previous sync -- syncing again would duplicate it.`,
       );
     }
 
