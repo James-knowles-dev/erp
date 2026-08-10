@@ -1,0 +1,84 @@
+import type { LoaderFunctionArgs } from "@remix-run/node";
+import { redirect } from "@remix-run/node";
+import { useLoaderData } from "@remix-run/react";
+import { Page, Layout, Card, BlockStack, Text, Button, Banner, List } from "@shopify/polaris";
+import { TitleBar } from "@shopify/app-bridge-react";
+import { authenticate } from "../shopify.server";
+import { getConnection, getFieldMappings } from "../models/connections.server";
+import { getDefaultFieldMappings } from "../adapters/netsuite/mapping";
+import { runPreflightCheck } from "../sync/preflight.server";
+
+export const loader = async ({ request }: LoaderFunctionArgs) => {
+  const { admin } = await authenticate.admin(request);
+  const connectionId = new URL(request.url).searchParams.get("connectionId");
+  if (!connectionId) throw redirect("/app/connect");
+
+  const connection = await getConnection(connectionId);
+  if (!connection || connection.status !== "active") throw redirect("/app/connect");
+
+  const saved = await getFieldMappings(connectionId);
+  const mapping =
+    saved.length > 0
+      ? saved.map((m) => ({
+          shopifyField: m.shopifyField,
+          erpField: m.erpField,
+          transformRule: m.transformRule ?? undefined,
+          isRequired: m.isRequired,
+        }))
+      : getDefaultFieldMappings().mappings;
+
+  const report = await runPreflightCheck(admin, connection.shopId, connectionId, mapping);
+
+  return { connectionId, report };
+};
+
+export default function ConnectStepPreflight() {
+  const { connectionId, report } = useLoaderData<typeof loader>();
+
+  return (
+    <Page>
+      <TitleBar title="Connect your ERP" />
+      <BlockStack gap="500">
+        <Layout>
+          <Layout.Section>
+            <Card>
+              <BlockStack gap="400">
+                <Text as="h2" variant="headingMd">
+                  Step 7 of 8: Pre-flight check
+                </Text>
+                <Text as="p" variant="bodyMd">
+                  {report.cleanCount} of your last {report.totalChecked} orders would sync
+                  cleanly.{" "}
+                  {report.issues.length > 0
+                    ? `${report.issues.length} would need attention.`
+                    : ""}
+                </Text>
+                {report.issues.length > 0 && (
+                  <Banner tone="warning" title="Orders that would need attention">
+                    <BlockStack gap="200">
+                      {report.issues.map((issue) => (
+                        <div key={issue.orderName}>
+                          <Text as="p" variant="bodyMd" fontWeight="semibold">
+                            {issue.orderName}
+                          </Text>
+                          <List type="bullet">
+                            {issue.reasons.map((reason) => (
+                              <List.Item key={reason}>{reason}</List.Item>
+                            ))}
+                          </List>
+                        </div>
+                      ))}
+                    </BlockStack>
+                  </Banner>
+                )}
+                <Button url={`/app/connect/netsuite/golive?connectionId=${connectionId}`} variant="primary">
+                  Continue
+                </Button>
+              </BlockStack>
+            </Card>
+          </Layout.Section>
+        </Layout>
+      </BlockStack>
+    </Page>
+  );
+}

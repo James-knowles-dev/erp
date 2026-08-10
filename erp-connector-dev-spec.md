@@ -297,7 +297,15 @@ CREATE TABLE erp_connections (
                                        -- step 1) before step 2 collects any credentials
   status TEXT NOT NULL,               -- 'pending' | 'active' | 'error' | 'disabled'
   connected_at TIMESTAMPTZ,
-  last_successful_sync_at TIMESTAMPTZ
+  last_successful_sync_at TIMESTAMPTZ,
+  backfill_window TEXT,                -- added in Milestone 3: 'none' | '30d' | '90d' | custom ISO
+                                        -- range -- §6 lists a PUT .../backfill-window endpoint but
+                                        -- the original schema had nowhere to persist its value
+  went_live_at TIMESTAMPTZ             -- added in Milestone 3: distinct from 'active' status
+                                        -- (Milestone 2, OAuth succeeded) -- this is wizard step 8
+                                        -- specifically; the sync worker only pushes to the ERP
+                                        -- once this is set, keeping steps 1-7 free per product
+                                        -- spec §9
 );
 
 CREATE TABLE field_mappings (

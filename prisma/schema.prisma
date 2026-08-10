@@ -65,9 +65,17 @@ model ErpConnection {
   status                String // 'pending' | 'active' | 'error' | 'disabled'
   connectedAt           DateTime? @map("connected_at")
   lastSuccessfulSyncAt  DateTime? @map("last_successful_sync_at")
+  // Both added building Milestone 3 -- the dev spec's API list (§6) implies this state exists
+  // (PUT .../backfill-window, POST .../activate) but the original §5 SQL had no columns for it.
+  // 'active' status means OAuth succeeded (Milestone 2); wentLiveAt is wizard step 8 specifically
+  // -- webhooks are received and queued regardless, but the sync worker only pushes to the ERP
+  // once this is set, matching "free sandbox/dry-run usage" until go-live (product spec §9).
+  backfillWindow String?   @map("backfill_window") // 'none' | '30d' | '90d' | custom ISO range
+  wentLiveAt     DateTime? @map("went_live_at")
 
   fieldMappings  FieldMapping[]
   edgeCaseRules  EdgeCaseRule[]
+  syncJobs       SyncJob[]
 
   @@map("erp_connections")
 }
@@ -94,4 +102,28 @@ model EdgeCaseRule {
   ruleValue    String        @map("rule_value")
 
   @@map("edge_case_rules")
+}
+
+// Matches `sync_jobs` in erp-connector-dev-spec.md §5. The idempotency index below is the
+// concrete mechanism behind §7's "keyed by Shopify resource ID + event type" -- a webhook
+// redelivery for work already queued/processing is a no-op (see enqueueSyncJob() in
+// app/sync/queue.server.ts), but a genuinely new event for the same resource (e.g. orders/updated
+// after orders/create already succeeded) is not blocked, since only non-terminal jobs count.
+model SyncJob {
+  id                  String    @id @default(uuid())
+  connectionId        String    @map("connection_id")
+  connection          ErpConnection @relation(fields: [connectionId], references: [id])
+  entityType          String    @map("entity_type") // 'order' | 'refund' | 'inventory' | 'customer' | 'product'
+  direction           String // 'shopify_to_erp' | 'erp_to_shopify'
+  shopifyReferenceId  String?   @map("shopify_reference_id")
+  erpDocumentRef       String?   @map("erp_document_ref")
+  status              String // 'queued' | 'processing' | 'success' | 'failed' | 'dead_letter'
+  attempts            Int       @default(0)
+  lastError           String?   @map("last_error")
+  payload             Json?
+  createdAt           DateTime  @default(now()) @map("created_at")
+  completedAt         DateTime? @map("completed_at")
+
+  @@index([connectionId, entityType, shopifyReferenceId, status])
+  @@map("sync_jobs")
 }

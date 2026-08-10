@@ -97,3 +97,23 @@ export async function saveFieldMappings(
 export async function getFieldMappings(connectionId: string) {
   return db.fieldMapping.findMany({ where: { connectionId } });
 }
+
+export async function saveEdgeCaseRules(connectionId: string, rules: Record<string, string>) {
+  await db.edgeCaseRule.deleteMany({ where: { connectionId } });
+  await db.edgeCaseRule.createMany({
+    data: Object.entries(rules).map(([ruleKey, ruleValue]) => ({ connectionId, ruleKey, ruleValue })),
+  });
+}
+
+export async function getEdgeCaseRules(connectionId: string): Promise<Record<string, string>> {
+  const rows = await db.edgeCaseRule.findMany({ where: { connectionId } });
+  return Object.fromEntries(rows.map((r) => [r.ruleKey, r.ruleValue]));
+}
+
+export async function setBackfillWindow(connectionId: string, backfillWindow: string) {
+  return db.erpConnection.update({ where: { id: connectionId }, data: { backfillWindow } });
+}
+
+export async function markConnectionLive(connectionId: string) {
+  return db.erpConnection.update({ where: { id: connectionId }, data: { wentLiveAt: new Date() } });
+}

@@ -69,7 +69,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   await saveFieldMappings(connectionId, mappings);
-  return redirect(`/app/connect/netsuite/done?connectionId=${connectionId}`);
+  return redirect(`/app/connect/netsuite/edgecases?connectionId=${connectionId}`);
 };
 
 export default function ConnectStepMapping() {
