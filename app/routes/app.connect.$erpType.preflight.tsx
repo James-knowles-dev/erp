@@ -1,6 +1,6 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { redirect } from "@remix-run/node";
-import { useLoaderData } from "@remix-run/react";
+import { useLoaderData, useNavigate } from "@remix-run/react";
 import { Page, Layout, Card, BlockStack, Text, Button, Banner, List } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
@@ -35,6 +35,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 
 export default function ConnectStepPreflight() {
   const { connectionId, erpType, report } = useLoaderData<typeof loader>();
+  const navigate = useNavigate();
 
   return (
     <Page>
@@ -72,7 +73,12 @@ export default function ConnectStepPreflight() {
                     </BlockStack>
                   </Banner>
                 )}
-                <Button url={`/app/connect/${erpType}/golive?connectionId=${connectionId}`} variant="primary">
+                {/* See app._index.tsx's comment: Button url=... triggers a real navigation that
+                    Shopify's embedded admin blocks (Permissions-Policy: unload). */}
+                <Button
+                  onClick={() => navigate(`/app/connect/${erpType}/golive?connectionId=${connectionId}`)}
+                  variant="primary"
+                >
                   Continue
                 </Button>
               </BlockStack>
