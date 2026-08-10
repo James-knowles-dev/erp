@@ -1,12 +1,18 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
+import { redirect } from "@remix-run/node";
 import { Form, useActionData, useLoaderData } from "@remix-run/react";
-import { Page, Layout, Card, BlockStack, Text, Button, Banner, List } from "@shopify/polaris";
+import { Page, Layout, Card, BlockStack, Text, Button, Banner, List, InlineStack, Badge } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
-import { getActiveConnectionForShop, getOrCreateShop } from "../models/connections.server";
+import {
+  getActiveConnectionForShop,
+  getOrCreateShop,
+  setConnectionStatus,
+} from "../models/connections.server";
 import { generateApiKey, setApiKey } from "../utils/apiKey.server";
 import { listWebhookSubscriptions } from "../sync/webhookSubscriptions.server";
 import { EVENT_TYPES } from "../sync/webhookEventTypes";
+import { SUPPORTED_ERPS } from "../adapters/registry.server";
 
 // Product spec §7.7 (extensibility): the API key and event list an agency needs to build custom
 // logic against this connection. Registering a webhook subscription itself is done via the API
@@ -22,20 +28,36 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const subscriptions = await listWebhookSubscriptions(connection.id);
   return {
     connected: true as const,
+    erpName: SUPPORTED_ERPS.find((e) => e.id === connection.erpType)?.name ?? connection.erpType,
+    environment: connection.environment,
+    status: connection.status,
     hasApiKey: Boolean(connection.apiKeyHash),
     subscriptions,
     apiBaseUrl: new URL(request.url).origin,
   };
 };
 
-// Regenerating invalidates the old key immediately -- any agency script using it starts getting
-// 401s until updated with the new one shown here.
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = await getOrCreateShop(session.shop);
   const connection = await getActiveConnectionForShop(shop.id);
   if (!connection) throw new Response("No active connection", { status: 400 });
 
+  const formData = await request.formData();
+  const intent = formData.get("intent");
+
+  if (intent === "disconnect") {
+    // Sets status: 'disabled' rather than deleting the row -- sync_jobs, activity_log, and
+    // reconciliation_records stay intact as an audit trail. getActiveConnectionForShop and the
+    // webhook receiver already filter out 'disabled' connections (dev spec §5's status enum),
+    // so this alone is enough to both stop new syncs and let the merchant pick a fresh ERP from
+    // /app/connect -- no other code needed to change to support this.
+    await setConnectionStatus(connection.id, "disabled");
+    return redirect("/app/connect");
+  }
+
+  // Regenerating invalidates the old key immediately -- any agency script using it starts
+  // getting 401s until updated with the new one shown here.
   const key = generateApiKey();
   await setApiKey(connection.id, key);
   return { newApiKey: key };
@@ -64,6 +86,34 @@ export default function Settings() {
       <TitleBar title="Settings" />
       <BlockStack gap="500">
         <Layout>
+          <Layout.Section>
+            <Card>
+              <BlockStack gap="300">
+                <InlineStack gap="200" blockAlign="center">
+                  <Text as="h2" variant="headingMd">
+                    Connection
+                  </Text>
+                  <Badge
+                    tone={
+                      data.status === "active" ? "success" : data.status === "error" ? "critical" : "info"
+                    }
+                  >
+                    {`${data.erpName} (${data.environment}) -- ${data.status}`}
+                  </Badge>
+                </InlineStack>
+                <Text as="p" variant="bodyMd">
+                  Disconnecting stops any further syncing and lets you pick a different ERP from
+                  scratch. Past sync activity and reconciliation history aren't deleted.
+                </Text>
+                <Form method="post">
+                  <input type="hidden" name="intent" value="disconnect" />
+                  <Button submit variant="secondary" tone="critical">
+                    Disconnect
+                  </Button>
+                </Form>
+              </BlockStack>
+            </Card>
+          </Layout.Section>
           <Layout.Section>
             <Card>
               <BlockStack gap="300">
