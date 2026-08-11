@@ -1,5 +1,5 @@
 // Canonical data model every ERP adapter translates to and from. Mirrors
-// erp-connector-dev-spec.md §3 -- keep both in sync when changing either.
+// README.md's Development Spec §3 -- keep both in sync when changing either.
 
 export interface CanonicalAddress {
   name?: string;

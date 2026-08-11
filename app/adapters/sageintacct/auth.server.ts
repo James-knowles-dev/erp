@@ -13,7 +13,7 @@
 // per-ERP instead of assuming oauth2.
 //
 // Not yet exercised against a live Sage Intacct account -- see decision D4 in
-// erp-connector-build-plan.md.
+// README.md's Build Plan.
 
 import { XMLBuilder, XMLParser } from "fast-xml-parser";
 import type { SageIntacctConfig, SageIntacctSession } from "./types";

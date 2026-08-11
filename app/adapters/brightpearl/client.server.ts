@@ -1,7 +1,7 @@
 // Low-level authenticated Brightpearl REST client. Endpoint paths verified against Brightpearl's
 // published API docs (api-docs.brightpearl.com, 2026-08-10 research) except where flagged
 // TODO(D4) -- not yet exercised against a live account. See decision D4 in
-// erp-connector-build-plan.md.
+// README.md's Build Plan.
 
 import type { CanonicalInventoryLevel } from "../../models/canonical";
 import type { BrightpearlRefundOperation } from "./transform";

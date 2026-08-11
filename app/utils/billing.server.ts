@@ -1,7 +1,7 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { authenticate, BILLING_PLANS } from "../shopify.server";
 
-// Per erp-connector-dev-spec.md §13, wizard steps 1-7 must stay free; billing only starts at the
+// Per README.md's Development Spec §13, wizard steps 1-7 must stay free; billing only starts at the
 // go-live action (Milestone 3, wizard step 8).
 
 // Whether to charge for real. Deliberately NOT keyed off NODE_ENV=production -- that's set on
@@ -32,7 +32,7 @@ export async function requireActiveBillingForGoLive(
   });
 }
 
-// Call once per synced order, from the sync worker, per erp-connector-dev-spec.md §13: "usage
+// Call once per synced order, from the sync worker, per README.md's Development Spec §13: "usage
 // records submitted as orders sync." Not yet called from worker.server.ts -- per-order pricing
 // (decision D1) is still a placeholder, so wiring this in now would submit meaningless $0 usage
 // records rather than nothing at all.

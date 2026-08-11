@@ -167,7 +167,7 @@ export class NetSuiteAdapter implements ERPAdapter {
   getRateLimitPolicy(): RateLimitPolicy {
     // NetSuite's actual model is concurrency-based (default 15 simultaneous requests, higher on
     // upper service tiers), not a simple requests-per-window token bucket -- this shape is an
-    // approximation of that, not a literal match. See erp-connector-dev-spec.md §4's note.
+    // approximation of that, not a literal match. See README.md's Development Spec §4's note.
     return { requestsPerWindow: 15, windowSeconds: 1, backoffStrategy: "exponential" };
   }
 }

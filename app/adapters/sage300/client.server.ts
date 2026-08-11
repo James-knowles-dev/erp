@@ -1,7 +1,7 @@
 // Low-level authenticated Sage 300 Web API client. Endpoint paths verified against Sage's "Sage
 // 300 Web API Developer Reference" and "Endpoint Reference" PDFs plus 2024-2025 community sources
 // (2026-08-10 research) except where flagged TODO(D4) -- not yet exercised against a live install.
-// See decision D4 in erp-connector-build-plan.md.
+// See decision D4 in README.md's Build Plan.
 
 import type { CanonicalInventoryLevel } from "../../models/canonical";
 import type { Sage300ItemIdMap } from "./types";

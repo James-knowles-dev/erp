@@ -1,6 +1,6 @@
 // NetSuite OAuth 2.0 Authorization Code Grant. Endpoint URLs and flow verified against NetSuite's
 // documented pattern (2026-08-10 research), not yet exercised against a live account -- see
-// decision D4 in erp-connector-build-plan.md. Uses OAuth 2.0 rather than Token-Based Auth (TBA)
+// decision D4 in README.md's Build Plan. Uses OAuth 2.0 rather than Token-Based Auth (TBA)
 // per decision D3: NetSuite blocks *new* TBA integrations from its 2027.1 release.
 
 import type { NetSuiteConfig, NetSuiteTokens } from "./types";

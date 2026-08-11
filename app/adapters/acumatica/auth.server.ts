@@ -1,6 +1,6 @@
 // Acumatica OAuth 2.0 Authorization Code Grant. Endpoint pattern verified against Acumatica's
 // documented flow (2026-08-10 research), not yet exercised against a live instance -- see
-// decision D4 in erp-connector-build-plan.md. Structurally similar to the NetSuite adapter's
+// decision D4 in README.md's Build Plan. Structurally similar to the NetSuite adapter's
 // auth.server.ts, but endpoints are relative to the customer's own instance URL rather than a
 // vendor-hosted domain pattern -- see AcumaticaConfig's comment in types.ts.
 

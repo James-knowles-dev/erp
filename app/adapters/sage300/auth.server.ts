@@ -4,7 +4,7 @@
 // placeholder code, and exchangeCodeForTokens does the real work -- a lightweight authenticated
 // request to confirm the submitted credentials actually work, rather than any real "exchange."
 // Not yet exercised against a live Sage 300 install -- see decision D4 in
-// erp-connector-build-plan.md.
+// README.md's Build Plan.
 
 import type { Sage300Config } from "./types";
 

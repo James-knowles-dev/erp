@@ -31,7 +31,7 @@ export interface EnqueueSyncJobInput {
   contentFingerprint?: string;
 }
 
-// Idempotency per erp-connector-dev-spec.md §7: a webhook redelivery for work already
+// Idempotency per README.md's Development Spec §7: a webhook redelivery for work already
 // queued/processing is a no-op. This first check alone only catches a redelivery of a job that's
 // still in flight -- it doesn't stop a redelivery *after* the original job already reached a
 // terminal status, and it's check-then-act, not atomic, so two concurrent deliveries could both

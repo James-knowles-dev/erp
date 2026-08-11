@@ -1,7 +1,7 @@
 import db from "../db.server";
 import { decrypt, encrypt } from "../utils/encryption.server";
 
-// Wraps the erp_connections table (erp-connector-dev-spec.md §5) with the encrypt/decrypt step
+// Wraps the erp_connections table (README.md's Development Spec §5) with the encrypt/decrypt step
 // so no route handler ever has to remember to do it itself.
 
 export async function getOrCreateShop(shopifyDomain: string) {

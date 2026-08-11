@@ -1,7 +1,7 @@
 // Pure canonical-model <-> Sage Intacct transform functions -- no network calls, unit-testable
 // without a live account. Payload shapes built from Intacct's documented SODOCUMENT/aradjustment
 // XML objects (2026-08-10 research), not verified against a live account -- see decision D4 in
-// erp-connector-build-plan.md.
+// README.md's Build Plan.
 
 import type { CanonicalAddress, CanonicalOrder, CanonicalRefund } from "../../models/canonical";
 import type { FieldMapping } from "../types";

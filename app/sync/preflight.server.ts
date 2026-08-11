@@ -155,7 +155,7 @@ export async function runPreflightCheck(
       reasons.push(`One or more line items has no SKU, which ${erpName} needs to identify the item.`);
     }
 
-    // Duplicate-detection per erp-connector-dev-spec.md §15: an order that already has a
+    // Duplicate-detection per README.md's Development Spec §15: an order that already has a
     // confirmed erp_document_ref (e.g. from a prior connector) would create a duplicate in
     // the ERP if synced again.
     const existingSync = await db.syncJob.findFirst({

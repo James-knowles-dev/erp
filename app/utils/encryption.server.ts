@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-// v1 encryption approach per erp-connector-build-plan.md decision D2: envelope encryption with
+// v1 encryption approach per README.md's Build Plan decision D2: envelope encryption with
 // a master key held in a Railway service variable, rather than a dedicated cloud KMS -- named
 // tech debt, revisit before this handles high-value ERP credentials at scale (see D2's KMS
 // alternative).
@@ -31,7 +31,7 @@ function getKeyForVersion(version: number): Buffer {
   if (!keyBase64) {
     throw new Error(
       `${envVar} is not set (needed to decrypt/encrypt data at key version ${version}). ` +
-        "Generate one with `openssl rand -base64 32` -- see erp-connector-build-plan.md decision D2 " +
+        "Generate one with `openssl rand -base64 32` -- see README.md's Build Plan decision D2 " +
         "and erp-connector-fixes-spec.md F12.",
     );
   }

@@ -1,4 +1,4 @@
-// Reconciliation per erp-connector-dev-spec.md §8: compares Shopify's order data against
+// Reconciliation per README.md's Development Spec §8: compares Shopify's order data against
 // sync_jobs/ERP confirmation records on a short interval (not just nightly), since Shopify only
 // retries failed webhooks for up to 48 hours -- this is what catches a webhook that silently
 // failed to enqueue or a job that silently failed to process.
@@ -37,9 +37,19 @@ const ORDER_DOCUMENT_TYPE: Record<string, string> = {
   brightpearl: "sales-order",
 };
 
+const RECONCILE_PAGE_SIZE = 250;
+// 7 days at up to ~1,400 orders/day before the safety cap kicks in -- generous relative to the
+// merchant sizes this app targets today; a store that routinely exceeds this needs a wider
+// reconciliation redesign (batched by day, background job), not a bigger constant here.
+const RECONCILE_MAX_PAGES = 40;
+
 const RECONCILE_ORDERS_QUERY = `#graphql
-  query ReconcileOrders($query: String!) {
-    orders(first: 250, query: $query, sortKey: CREATED_AT) {
+  query ReconcileOrders($first: Int!, $query: String!, $after: String) {
+    orders(first: $first, query: $query, after: $after, sortKey: CREATED_AT) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
       edges {
         node {
           id
@@ -57,15 +67,44 @@ interface ReconcileOrderNode {
   currentTotalPriceSet: { shopMoney: { amount: string } };
 }
 
+interface ReconcileOrdersPage {
+  data: {
+    orders: {
+      pageInfo: { hasNextPage: boolean; endCursor: string | null };
+      edges: { node: ReconcileOrderNode }[];
+    };
+  };
+}
+
+// Pages through the full reconciliation window rather than stopping after the first 250 orders
+// (GraphQL's max page size) -- a store with more than one page of orders in the trailing 7 days
+// used to have the older-in-window orders silently skipped every run, with nothing else catching
+// it (this run *is* the catch-all). Capped at RECONCILE_MAX_PAGES as a safety backstop against an
+// unexpectedly huge window, not because that's an expected size.
+async function fetchRecentOrders(admin: AdminApiContext, cutoff: Date): Promise<ReconcileOrderNode[]> {
+  const orders: ReconcileOrderNode[] = [];
+  let after: string | null = null;
+
+  for (let page = 0; page < RECONCILE_MAX_PAGES; page++) {
+    const response = await admin.graphql(RECONCILE_ORDERS_QUERY, {
+      variables: { first: RECONCILE_PAGE_SIZE, query: `created_at:>=${cutoff.toISOString()}`, after },
+    });
+    const { data } = (await response.json()) as ReconcileOrdersPage;
+    orders.push(...data.orders.edges.map((e) => e.node));
+
+    if (!data.orders.pageInfo.hasNextPage) break;
+    after = data.orders.pageInfo.endCursor;
+  }
+
+  return orders;
+}
+
 export async function runReconciliationForConnection(
   admin: AdminApiContext,
   connection: ErpConnection,
 ): Promise<void> {
   const cutoff = new Date(Date.now() - RECONCILE_WINDOW_MS);
-  const response = await admin.graphql(RECONCILE_ORDERS_QUERY, {
-    variables: { query: `created_at:>=${cutoff.toISOString()}` },
-  });
-  const data = (await response.json()) as { data: { orders: { edges: { node: ReconcileOrderNode }[] } } };
+  const orders = await fetchRecentOrders(admin, cutoff);
 
   const credentials = await loadErpCredentials(connection.id);
   const adapter = createAdapter(connection.erpType);
@@ -74,7 +113,7 @@ export async function runReconciliationForConnection(
   let discrepancies = 0;
   let checked = 0;
 
-  for (const { node } of data.data.orders.edges) {
+  for (const node of orders) {
     const orderId = node.id.split("/").pop();
     if (!orderId) continue;
     checked += 1;

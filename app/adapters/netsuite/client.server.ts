@@ -1,7 +1,7 @@
 // Low-level authenticated NetSuite REST client: request signing, SuiteQL queries, and the
 // item/customer id lookups the transform layer needs. Endpoint paths verified against NetSuite's
 // documented REST Record API and SuiteQL patterns (2026-08-10 research); not yet exercised
-// against a live account -- see decision D4 in erp-connector-build-plan.md.
+// against a live account -- see decision D4 in README.md's Build Plan.
 
 import type { CanonicalInventoryLevel } from "../../models/canonical";
 import type { NetSuiteRefundOperation } from "./transform";

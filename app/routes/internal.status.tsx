@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { useLoaderData } from "@remix-run/react";
 import { Queue } from "bullmq";
@@ -6,31 +5,18 @@ import db from "../db.server";
 import { getRedisConnection } from "../sync/redis.server";
 import { SYNC_QUEUE_NAME } from "../sync/queue.server";
 import { RECONCILIATION_QUEUE_NAME } from "../sync/scheduler.server";
+import { checkInternalDashboardAuth } from "../utils/internalAuth.server";
 
-// Vendor-side monitoring per erp-connector-dev-spec.md §16 -- "what the team building and running
+// Vendor-side monitoring per README.md's Development Spec §16 -- "what the team building and running
 // the app needs to watch," explicitly distinct from the merchant-facing activity log (app.activity
 // .tsx). Deliberately NOT under /app -- that route tree requires a valid Shopify embedded session
 // for one specific shop; this needs to show data across every shop, so it lives outside that tree
-// entirely, gated by a shared secret instead of a merchant session.
+// entirely, gated by a shared secret instead of a merchant session (see
+// utils/internalAuth.server.ts for the actual check).
 const WINDOW_MS = 24 * 60 * 60 * 1000;
 
-function checkAuth(request: Request): void {
-  const token = process.env.INTERNAL_DASHBOARD_TOKEN;
-  if (!token) throw new Response("INTERNAL_DASHBOARD_TOKEN is not set.", { status: 503 });
-  const header = request.headers.get("authorization") ?? "";
-  const expected = Buffer.from(`Bearer ${token}`);
-  const actual = Buffer.from(header);
-  // Fixed-size comparison buffer, not `actual`/`expected` directly -- timingSafeEqual throws on
-  // a length mismatch, and comparing against a length derived from attacker input would itself
-  // leak the token's length via which branch throws (erp-connector-fixes-spec.md F16).
-  const actualPadded = Buffer.alloc(expected.length);
-  actual.copy(actualPadded);
-  const authorized = actual.length === expected.length && crypto.timingSafeEqual(actualPadded, expected);
-  if (!authorized) throw new Response("Unauthorized", { status: 401 });
-}
-
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  checkAuth(request);
+  checkInternalDashboardAuth(request);
 
   const since = new Date(Date.now() - WINDOW_MS);
 

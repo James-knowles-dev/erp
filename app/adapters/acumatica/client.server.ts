@@ -1,6 +1,6 @@
 // Low-level authenticated Acumatica REST client. Endpoint paths verified against Acumatica's
 // documented contract-based REST API conventions (2026-08-10 research); not yet exercised
-// against a live instance -- see decision D4 in erp-connector-build-plan.md.
+// against a live instance -- see decision D4 in README.md's Build Plan.
 
 import type { CanonicalInventoryLevel } from "../../models/canonical";
 import type { AcumaticaRefundOperation } from "./transform";

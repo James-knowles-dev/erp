@@ -1,7 +1,7 @@
 // Pure canonical-model <-> Acumatica transform functions -- no network calls, unit-testable
 // without a live instance. Payload shapes built from Acumatica's documented contract-based REST
 // API conventions (2026-08-10 research), not verified against a real instance -- see decision D4
-// in erp-connector-build-plan.md. Known open questions called out inline, same policy as the
+// in README.md's Build Plan. Known open questions called out inline, same policy as the
 // NetSuite adapter's transform.ts.
 
 import type { CanonicalAddress, CanonicalOrder, CanonicalRefund } from "../../models/canonical";
@@ -124,7 +124,7 @@ export interface AcumaticaRefundOperation {
   // TODO(D4): Acumatica has no direct equivalent of NetSuite's credit-memo-linked-to-invoice
   // pattern verified here -- this creates a second SalesOrder with OrderType 'CM' (credit memo)
   // referencing the original via the same custom field used for the Shopify order id, which is a
-  // best-effort interpretation of erp-connector-spec.md §7.2's governed cases pending
+  // best-effort interpretation of README.md's Product Spec §7.2's governed cases pending
   // verification against a real instance, not a documented Acumatica convention.
   //
   // POST for a new credit memo record, PUT to update the original order's status in place --

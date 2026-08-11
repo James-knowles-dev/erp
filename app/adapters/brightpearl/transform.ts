@@ -1,7 +1,7 @@
 // Pure canonical-model <-> Brightpearl transform functions -- no network calls, unit-testable
 // without a live account. Payload shapes built from Brightpearl's documented sales-order/
 // sales-credit REST API (api-docs.brightpearl.com, 2026-08-10 research), not verified against a
-// live account -- see decision D4 in erp-connector-build-plan.md.
+// live account -- see decision D4 in README.md's Build Plan.
 
 import type { CanonicalAddress, CanonicalOrder, CanonicalRefund } from "../../models/canonical";
 import type { FieldMapping } from "../types";

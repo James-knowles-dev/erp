@@ -10,7 +10,7 @@ import { SUPPORTED_ERPS } from "../adapters/registry.server";
 import { requireWizardStep } from "../models/wizardProgress.server";
 
 // Product spec §7.1 step 5: plain yes/no or multiple-choice questions, not technical settings.
-// Only the two rule keys named as examples in erp-connector-dev-spec.md §5 are asked here --
+// Only the two rule keys named as examples in README.md's Development Spec §5 are asked here --
 // the full edge-case question set (e.g. order-edit handling, multi-currency rate source) is
 // broader than what's built so far and left for a follow-up pass.
 function buildQuestions(erpName: string) {

@@ -1,4 +1,4 @@
-// Every ERP adapter implements this interface. Mirrors erp-connector-dev-spec.md §4 -- keep
+// Every ERP adapter implements this interface. Mirrors README.md's Development Spec §4 -- keep
 // both in sync when changing either. The sync worker and reconciliation worker (Milestone 3-4)
 // only ever talk to an ERP through this interface, never directly.
 

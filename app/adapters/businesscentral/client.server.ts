@@ -1,6 +1,6 @@
 // Low-level authenticated Business Central REST client. Endpoint paths verified against
 // Microsoft's documented v2.0 API conventions (2026-08-10 research); not yet exercised against a
-// live environment -- see decision D4 in erp-connector-build-plan.md.
+// live environment -- see decision D4 in README.md's Build Plan.
 
 import type { CanonicalInventoryLevel } from "../../models/canonical";
 import type { BusinessCentralRefundOperation } from "./transform";

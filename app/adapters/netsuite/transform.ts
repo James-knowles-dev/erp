@@ -1,7 +1,7 @@
 // Pure canonical-model <-> NetSuite transform functions -- no network calls, so these are
 // unit-testable without a live NetSuite account. Payload shapes are built from NetSuite's
 // documented REST Record API examples (POST /record/v1/salesOrder), not verified against a real
-// sandbox yet -- see decision D4 in erp-connector-build-plan.md. Known open questions are called
+// sandbox yet -- see decision D4 in README.md's Build Plan. Known open questions are called
 // out inline rather than silently assumed correct.
 
 import type { CanonicalAddress, CanonicalOrder, CanonicalRefund } from "../../models/canonical";
@@ -138,7 +138,7 @@ export interface NetSuiteRefundOperation {
   // TODO(D4): NetSuite doesn't have a first-class "reversed invoice" record type the way the
   // canonical model's targetErpDocumentType implies -- reversing a released invoice is normally
   // also done via a credit memo in NetSuite's own model. Treating 'reversed_invoice' the same as
-  // 'credit_memo' here is a best-effort interpretation of erp-connector-spec.md §7.2's governed
+  // 'credit_memo' here is a best-effort interpretation of README.md's Product Spec §7.2's governed
   // cases, pending verification against a real account.
   method: "POST" | "PATCH";
   recordType: "creditMemo" | "salesOrder";

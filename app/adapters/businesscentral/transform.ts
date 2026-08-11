@@ -1,7 +1,7 @@
 // Pure canonical-model <-> Business Central transform functions -- no network calls, unit-
 // testable without a live environment. Payload shapes built from Microsoft's documented v2.0
 // salesOrders/salesOrderLines API (2026-08-10 research), not verified against a real environment
-// -- see decision D4 in erp-connector-build-plan.md.
+// -- see decision D4 in README.md's Build Plan.
 
 import type { CanonicalAddress, CanonicalOrder, CanonicalRefund } from "../../models/canonical";
 import type { FieldMapping } from "../types";
@@ -136,7 +136,7 @@ export interface BusinessCentralRefundOperation {
   // entity (a distinct resource from salesOrders, unlike NetSuite/Acumatica which both reuse
   // their sales order record type with a different OrderType/record subtype). Cancelling an
   // unshipped order updates the original salesOrder's status instead. Best-effort interpretation
-  // of erp-connector-spec.md §7.2's governed cases, pending verification against a real
+  // of README.md's Product Spec §7.2's governed cases, pending verification against a real
   // environment.
   method: "POST" | "PATCH";
   entity: "salesCreditMemos" | "salesOrders";

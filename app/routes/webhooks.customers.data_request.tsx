@@ -3,7 +3,7 @@ import { authenticate } from "../shopify.server";
 import { handleCustomerDataRequest } from "../utils/gdpr.server";
 
 // Mandatory GDPR compliance webhook -- required for public App Store listing.
-// See erp-connector-spec.md §9. Stages any stored order-linked data for the requested customer
+// See README.md's Product Spec §9. Stages any stored order-linked data for the requested customer
 // (SyncJob.payload) per connection in the activity log -- see gdpr.server.ts for why that's the
 // interim delivery mechanism.
 export const action = async ({ request }: ActionFunctionArgs) => {

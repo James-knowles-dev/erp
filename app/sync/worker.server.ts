@@ -8,7 +8,7 @@ import { shopifyOrderToCanonical, type ShopifyOrderPayload } from "./shopifyToCa
 import { logActivity } from "./activityLog.server";
 import { dispatchEvent } from "./webhookDispatch.server";
 
-// Runs in-process alongside the web app for now (per erp-connector-build-plan.md's Milestone 3
+// Runs in-process alongside the web app for now (per README.md's Build Plan, Milestone 3's
 // worker-deploy decision) rather than as the separate Railway service the dev spec's architecture
 // calls for -- splitting it out later is a deploy-config change, not a rewrite, since this module
 // doesn't know or care which process it's running in.

@@ -1,7 +1,7 @@
 // Pure canonical-model <-> Sage 300 transform functions -- no network calls, unit-testable
 // without a live install. Payload shapes built from Sage's Web API Developer/Endpoint Reference
 // PDFs (2026-08-10 research), not verified against a live install -- see decision D4 in
-// erp-connector-build-plan.md.
+// README.md's Build Plan.
 
 import type { CanonicalAddress, CanonicalOrder, CanonicalRefund } from "../../models/canonical";
 import type { FieldMapping } from "../types";

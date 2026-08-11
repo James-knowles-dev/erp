@@ -1,7 +1,7 @@
 // Low-level authenticated Sage Intacct XML Gateway client. Function/field names verified against
 // Sage's developer docs and community references (2026-08-10 research) except where flagged
 // TODO(D4) -- not yet exercised against a live account. See decision D4 in
-// erp-connector-build-plan.md.
+// README.md's Build Plan.
 
 import { XMLBuilder, XMLParser } from "fast-xml-parser";
 import type { CanonicalInventoryLevel } from "../../models/canonical";

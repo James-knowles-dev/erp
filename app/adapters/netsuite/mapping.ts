@@ -2,7 +2,7 @@ import type { FieldMapping, FieldMappingTemplate } from "../types";
 import { buildValidateMapping } from "../shared/validateMapping";
 
 // Default field mappings for a NetSuite connection's "order" entity, pre-filled per
-// erp-connector-spec.md §7.1 step 4 ("every common field pre-mapped ... already selected").
+// README.md's Product Spec §7.1 step 4 ("every common field pre-mapped ... already selected").
 // erpField paths are dot-notation targets applied by transform.ts's setPath() against the
 // NetSuite REST Record API salesOrder payload shape.
 export function getDefaultFieldMappings(): FieldMappingTemplate {

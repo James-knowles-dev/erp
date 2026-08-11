@@ -8,9 +8,9 @@ import {
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
 
-// Plan names, tiered by order volume per erp-connector-spec.md §9. The amounts, order-volume
+// Plan names, tiered by order volume per README.md's Product Spec §9. The amounts, order-volume
 // breakpoints, and even the tier names below are PLACEHOLDERS -- see decision D1 in
-// erp-connector-build-plan.md. Nothing here should be treated as real pricing until that's
+// README.md's Build Plan. Nothing here should be treated as real pricing until that's
 // resolved; update both this file and the `terms` strings together when it is.
 export const BILLING_PLANS = {
   STARTER: "Starter",
@@ -28,7 +28,7 @@ const shopify = shopifyApp({
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
   billing: {
-    // Usage-based with a capped monthly amount, per erp-connector-dev-spec.md §13's billing
+    // Usage-based with a capped monthly amount, per README.md's Development Spec §13's billing
     // model. PLACEHOLDER numbers -- see decision D1.
     [BILLING_PLANS.STARTER]: {
       lineItems: [

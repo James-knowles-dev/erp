@@ -108,7 +108,7 @@ export class AcumaticaAdapter implements ERPAdapter {
   supportsInventoryWebhooks(): boolean {
     // Acumatica's REST API doesn't offer native webhook/push notifications the way NetSuite's
     // optional SuiteScript setup does -- polling only, per the product/dev spec's own honesty
-    // about which ERPs get real-time by default (see erp-connector-spec.md §3's caveat).
+    // about which ERPs get real-time by default (see README.md's Product Spec §3's caveat).
     return false;
   }
 

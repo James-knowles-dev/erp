@@ -5,7 +5,7 @@ import { getRedisConnection } from "./redis.server";
 import { runReconciliationForConnection } from "./reconciliation.server";
 
 export const RECONCILIATION_QUEUE_NAME = "reconciliation";
-const INTERVAL_MS = 15 * 60 * 1000; // per erp-connector-dev-spec.md §8: "not just nightly"
+const INTERVAL_MS = 15 * 60 * 1000; // per README.md's Development Spec §8: "not just nightly"
 
 // unauthenticated.admin(shop) rather than authenticate.admin(request): this runs on a timer, not
 // in response to an HTTP request, so there's no session to authenticate -- it uses the stored

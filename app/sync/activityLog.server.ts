@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import db from "../db.server";
 
-// Matches `activity_log` in erp-connector-dev-spec.md §5 -- the merchant-facing "plain-language
+// Matches `activity_log` in README.md's Development Spec §5 -- the merchant-facing "plain-language
 // view of what synced, when, and what failed" from product spec §7.6. Deliberately a thin
 // fire-and-forget wrapper so call sites (webhook receiver, worker, reconciliation job) don't need
 // their own try/catch around it; a logging failure shouldn't fail the sync itself.

@@ -1,6 +1,6 @@
 // Business Central OAuth 2.0 via Azure AD (Microsoft Entra ID) Authorization Code Grant.
 // Endpoint pattern verified against Microsoft's documented flow (2026-08-10 research), not yet
-// exercised against a live environment -- see decision D4 in erp-connector-build-plan.md.
+// exercised against a live environment -- see decision D4 in README.md's Build Plan.
 // Structurally similar to the NetSuite/Acumatica adapters' auth.server.ts files, but endpoints
 // are Microsoft's shared Azure AD domain parameterized by tenantId, not the customer's own
 // instance domain the way Acumatica's are.

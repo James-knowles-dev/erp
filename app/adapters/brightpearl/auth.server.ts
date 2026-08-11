@@ -3,7 +3,7 @@
 // registering as a Brightpearl developer/app, the same way SHOPIFY_API_KEY/SECRET belong to this
 // app rather than to each merchant -- not something a merchant generates in their own instance.
 // Not yet exercised against a live Brightpearl developer account -- see decision D4 in
-// erp-connector-build-plan.md.
+// README.md's Build Plan.
 
 import type { BrightpearlTokens } from "./types";
 
