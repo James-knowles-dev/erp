@@ -2,7 +2,7 @@ import type { LoaderFunctionArgs } from "@remix-run/node";
 import { redirect } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 import { loadErpCredentials, setConnectionStatus, storeErpCredentials } from "../models/connections.server";
-import { createAdapter, exchangeCodeForTokens, getConnectFormFields } from "../adapters/registry.server";
+import { createAdapter, exchangeCodeForTokens, getAuthType, getConnectFormFields } from "../adapters/registry.server";
 
 // The ERP redirects the merchant's browser back here after they log in and consent (or deny).
 // TODO(D4): this is a full top-level round-trip out of the Shopify embedded iframe and back --
@@ -53,7 +53,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   await storeErpCredentials(connectionId, fullCredentials);
 
   const adapter = createAdapter(erpType);
-  await adapter.authenticate({ authType: "oauth2", values: fullCredentials });
+  await adapter.authenticate({ authType: getAuthType(erpType), values: fullCredentials });
   const test = await adapter.testConnection();
   if (!test.success) {
     await setConnectionStatus(connectionId, "error");

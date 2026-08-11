@@ -3,7 +3,7 @@ import db from "../db.server";
 import { getRedisConnection } from "./redis.server";
 import { SYNC_QUEUE_NAME } from "./queue.server";
 import { getConnection, getFieldMappings, loadErpCredentials } from "../models/connections.server";
-import { createAdapter, getDefaultFieldMappings } from "../adapters/registry.server";
+import { createAdapter, getAuthType, getDefaultFieldMappings } from "../adapters/registry.server";
 import { shopifyOrderToCanonical, type ShopifyOrderPayload } from "./shopifyToCanonical";
 import { logActivity } from "./activityLog.server";
 import { dispatchEvent } from "./webhookDispatch.server";
@@ -81,7 +81,7 @@ async function processJob(job: Job<{ syncJobId: string }>): Promise<void> {
   if (!credentials) throw new Error(`No stored ERP credentials for connection ${connection.id}.`);
 
   const adapter = createAdapter(connection.erpType);
-  const auth = await adapter.authenticate({ authType: "oauth2", values: { ...credentials } });
+  const auth = await adapter.authenticate({ authType: getAuthType(connection.erpType), values: { ...credentials } });
   if (!auth.success) throw new Error(`ERP re-authentication failed: ${auth.message}`);
 
   const documentRef = await adapter.pushOrder(canonicalOrder, mapping);

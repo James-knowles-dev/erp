@@ -17,17 +17,25 @@ import type { ErpConnection } from "@prisma/client";
 import db from "../db.server";
 import { logActivity } from "./activityLog.server";
 import { loadErpCredentials } from "../models/connections.server";
-import { createAdapter } from "../adapters/registry.server";
+import { createAdapter, getAuthType } from "../adapters/registry.server";
 
 const RECONCILE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const UNCONFIRMED_THRESHOLD_MS = 60 * 60 * 1000; // per §8 step 3: "past a reasonable time threshold"
 const DISCREPANCY_ALERT_THRESHOLD = 0.02; // per §8 step 5: >2% over a rolling 24h
 
-// Neither adapter's getOrderStatus() actually reads documentType (both key off documentId alone)
-// -- but sync_jobs only persists the id, not the type it was pushed as, so this maps erpType to
-// the string each adapter's pushOrder() actually returns, for correctness if that ever changes
-// rather than relying on it staying coincidentally unused.
-const ORDER_DOCUMENT_TYPE: Record<string, string> = { netsuite: "salesOrder", acumatica: "SalesOrder" };
+// No adapter's getOrderStatus() actually reads documentType (all key off documentId alone) -- but
+// sync_jobs only persists the id, not the type it was pushed as, so this maps erpType to the
+// string each adapter's pushOrder() actually returns, for correctness if that ever changes rather
+// than relying on it staying coincidentally unused. Previously missing business_central (a gap
+// from Milestone 6, found while adding the three Milestone 9 adapters below) -- filled in now.
+const ORDER_DOCUMENT_TYPE: Record<string, string> = {
+  netsuite: "salesOrder",
+  acumatica: "SalesOrder",
+  business_central: "salesOrders",
+  sage_intacct: "SODOCUMENT",
+  sage_300: "OEOrders",
+  brightpearl: "sales-order",
+};
 
 const RECONCILE_ORDERS_QUERY = `#graphql
   query ReconcileOrders($query: String!) {
@@ -61,7 +69,7 @@ export async function runReconciliationForConnection(
 
   const credentials = await loadErpCredentials(connection.id);
   const adapter = createAdapter(connection.erpType);
-  if (credentials) await adapter.authenticate({ authType: "oauth2", values: { ...credentials } });
+  if (credentials) await adapter.authenticate({ authType: getAuthType(connection.erpType), values: { ...credentials } });
 
   let discrepancies = 0;
   let checked = 0;

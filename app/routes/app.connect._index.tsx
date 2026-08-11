@@ -7,11 +7,15 @@ import { authenticate } from "../shopify.server";
 import { createConnection, getActiveConnectionForShop, getOrCreateShop } from "../models/connections.server";
 import { SUPPORTED_ERPS } from "../adapters/registry.server";
 
-// Wizard step 1 (product spec §7.1 step 1): pick an ERP. NetSuite (Milestone 1) and Acumatica
-// (Milestone 5) are built; the rest are shown so the picker doesn't look broken, but aren't
-// selectable yet. The list itself lives in adapters/registry.server.ts, not here -- this route
-// has no ERP-specific knowledge at all, which is the actual point of Milestone 5's wizard
-// generalization: adding a third ERP means one entry in that registry, not touching this file.
+// Wizard step 1 (product spec §7.1 step 1): pick an ERP. All six adapters (NetSuite, Acumatica,
+// Business Central, Sage Intacct, Sage 300, Brightpearl) are built as of Milestone 9 -- the
+// `available` flag exists for the next one (SAP Business One, Milestone 10, conditional on
+// demand) rather than any of the current six. The list itself lives in adapters/registry.server.ts,
+// not here -- this route has no ERP-specific knowledge at all, which is the actual point of
+// Milestone 5's wizard generalization: adding an ERP means one entry in that registry, not
+// touching this file. That claim has now held for four more adapters past Business Central,
+// including two (Sage Intacct, Sage 300) with a non-OAuth2 auth model -- see registry.server.ts's
+// authType field.
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = await getOrCreateShop(session.shop);
