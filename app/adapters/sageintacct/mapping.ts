@@ -1,4 +1,5 @@
-import type { FieldMapping, FieldMappingTemplate, ValidationIssue } from "../types";
+import type { FieldMapping, FieldMappingTemplate } from "../types";
+import { buildValidateMapping } from "../shared/validateMapping";
 
 // Default field mappings for a Sage Intacct connection's "order" entity, mirroring the other three
 // adapters' mapping.ts files and defaults for the same shopifyField set. erpField values target
@@ -11,43 +12,35 @@ export function getDefaultFieldMappings(): FieldMappingTemplate {
     { shopifyField: "lineItem.sku", erpField: "ITEMID", isRequired: true },
     { shopifyField: "lineItem.quantity", erpField: "QUANTITY", isRequired: true },
     { shopifyField: "lineItem.unitPrice", erpField: "PRICE", isRequired: true },
+    // erp-connector-fixes-spec.md F7 -- see transform.ts's header comment on
+    // canonicalOrderToSalesOrder for why these are unmapped (erpField: "") by default rather than
+    // guessed: Intacct's SHIPTO/BILLTO are often CONTACTNAME references to an existing Contact
+    // record, not free-text addresses, and there's no confirmed generic custom-field convention
+    // for order-level totals the way NetSuite/Acumatica have. Present in the mapping UI, computed
+    // in transform.ts, but only actually sent if a merchant/agency retargets them to a field
+    // confirmed against their own account.
+    { shopifyField: "order.shippingTotal", erpField: "", isRequired: false },
+    { shopifyField: "order.taxTotal", erpField: "", isRequired: false },
+    { shopifyField: "order.discountTotal", erpField: "", isRequired: false },
+    { shopifyField: "order.giftCardTotal", erpField: "", isRequired: false },
+    { shopifyField: "order.exchangeRate", erpField: "", isRequired: false },
+    { shopifyField: "billingAddress.address1", erpField: "", isRequired: false },
+    { shopifyField: "billingAddress.address2", erpField: "", isRequired: false },
+    { shopifyField: "billingAddress.city", erpField: "", isRequired: false },
+    { shopifyField: "billingAddress.provinceCode", erpField: "", isRequired: false },
+    { shopifyField: "billingAddress.zip", erpField: "", isRequired: false },
+    { shopifyField: "billingAddress.countryCode", erpField: "", isRequired: false },
+    { shopifyField: "shippingAddress.address1", erpField: "", isRequired: false },
+    { shopifyField: "shippingAddress.address2", erpField: "", isRequired: false },
+    { shopifyField: "shippingAddress.city", erpField: "", isRequired: false },
+    { shopifyField: "shippingAddress.provinceCode", erpField: "", isRequired: false },
+    { shopifyField: "shippingAddress.zip", erpField: "", isRequired: false },
+    { shopifyField: "shippingAddress.countryCode", erpField: "", isRequired: false },
   ];
 
   return { entityType: "order", mappings };
 }
 
-export function validateMapping(mapping: FieldMapping[]): ValidationIssue[] {
-  const issues: ValidationIssue[] = [];
-  const required = getDefaultFieldMappings().mappings.filter((m) => m.isRequired);
-
-  for (const req of required) {
-    const present = mapping.find((m) => m.shopifyField === req.shopifyField);
-    if (!present) {
-      issues.push({
-        field: req.shopifyField,
-        severity: "error",
-        message: `${req.shopifyField} is required by Sage Intacct (target: ${req.erpField}) but has no mapping.`,
-      });
-    } else if (!present.erpField) {
-      issues.push({
-        field: req.shopifyField,
-        severity: "error",
-        message: `${req.shopifyField} is mapped but has no Sage Intacct target field.`,
-      });
-    }
-  }
-
-  const seen = new Set<string>();
-  for (const m of mapping) {
-    if (seen.has(m.erpField)) {
-      issues.push({
-        field: m.shopifyField,
-        severity: "warning",
-        message: `Multiple Shopify fields map to the same Sage Intacct field "${m.erpField}" -- the last one applied wins.`,
-      });
-    }
-    seen.add(m.erpField);
-  }
-
-  return issues;
-}
+export const validateMapping = buildValidateMapping("Sage Intacct", () =>
+  getDefaultFieldMappings().mappings.filter((m) => m.isRequired),
+);

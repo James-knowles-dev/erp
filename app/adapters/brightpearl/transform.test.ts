@@ -54,6 +54,36 @@ describe("canonicalOrderToBrightpearlSalesOrder", () => {
   it("throws if a line item's SKU has no resolved Brightpearl product id", () => {
     expect(() => canonicalOrderToBrightpearlSalesOrder(baseOrder, mapping, {}, "555")).toThrow(/WIDGET-1/);
   });
+
+  // Regression coverage for erp-connector-fixes-spec.md F7.
+  it("computes shipping/tax/discount/gift-card totals but leaves them (and addresses) unmapped by default", () => {
+    const richOrder: CanonicalOrder = {
+      ...baseOrder,
+      exchangeRateAtTransaction: 1.35,
+      discounts: [
+        { type: "fixed_amount", value: 5, appliesTo: "order" },
+        { type: "percentage", value: 10, appliesTo: "order" },
+      ],
+      taxLines: [{ title: "State Tax", rate: 0.07, amount: 2.8 }],
+      shippingLines: [{ title: "Standard", amount: 6.5 }],
+      giftCards: [{ code: "GC-1", amountUsed: 10 }],
+    };
+
+    const payload = canonicalOrderToBrightpearlSalesOrder(richOrder, mapping, { "WIDGET-1": "9001" }, "555");
+
+    expect(Object.keys(payload)).toEqual(["customerId", "placedOn", "currency", "rows"]);
+  });
+
+  it("sets a computed total once mapping is retargeted to a real field", () => {
+    const richOrder: CanonicalOrder = { ...baseOrder, shippingLines: [{ title: "Standard", amount: 6.5 }] };
+    const customMapping = mapping.map((m) =>
+      m.shopifyField === "order.shippingTotal" ? { ...m, erpField: "shippingCostIncTax" } : m,
+    );
+
+    const payload = canonicalOrderToBrightpearlSalesOrder(richOrder, customMapping, { "WIDGET-1": "9001" }, "555");
+
+    expect(payload.shippingCostIncTax).toBe(6.5);
+  });
 });
 
 describe("canonicalRefundToBrightpearlOperation", () => {

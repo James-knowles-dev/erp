@@ -5,7 +5,7 @@ import { enqueueSyncJob } from "../sync/queue.server";
 import { logActivity } from "../sync/activityLog.server";
 import { dispatchEvent } from "../sync/webhookDispatch.server";
 import { syncModeForConnection } from "../models/connections.server";
-import type { ShopifyOrderPayload } from "../sync/shopifyToCanonical";
+import { computeOrderFingerprint, type ShopifyOrderPayload } from "../sync/shopifyToCanonical";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { shop, topic, payload } = await authenticate.webhook(request);
@@ -34,6 +34,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     shopifyReferenceId: String(order.id),
     payload: payload,
     mode,
+    contentFingerprint: computeOrderFingerprint(order),
   });
 
   if (enqueued) {

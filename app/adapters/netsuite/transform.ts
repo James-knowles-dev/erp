@@ -4,7 +4,7 @@
 // sandbox yet -- see decision D4 in erp-connector-build-plan.md. Known open questions are called
 // out inline rather than silently assumed correct.
 
-import type { CanonicalOrder, CanonicalRefund } from "../../models/canonical";
+import type { CanonicalAddress, CanonicalOrder, CanonicalRefund } from "../../models/canonical";
 import type { FieldMapping } from "../types";
 import type { NetSuiteItemIdMap } from "./types";
 
@@ -26,6 +26,33 @@ function findErpField(mapping: FieldMapping[], shopifyField: string): string | u
   return mapping.find((m) => m.shopifyField === shopifyField)?.erpField;
 }
 
+// erp-connector-fixes-spec.md F7: tax/discount/shipping/gift-card/address were previously dropped
+// entirely by every adapter's transform, including this one. addr1/city/state/zip/country are
+// NetSuite's documented address-subrecord field names for the shippingAddress/billingAddress
+// sub-objects on the REST Record API's SalesOrder representation.
+const ADDRESS_SUBFIELDS: Array<[keyof CanonicalAddress, string]> = [
+  ["address1", "addr1"],
+  ["address2", "addr2"],
+  ["city", "city"],
+  ["provinceCode", "state"],
+  ["zip", "zip"],
+  ["countryCode", "country"],
+];
+
+function setAddress(
+  payload: Record<string, unknown>,
+  mapping: FieldMapping[],
+  canonicalPrefix: "billingAddress" | "shippingAddress",
+  address: CanonicalAddress,
+): void {
+  for (const [canonicalKey] of ADDRESS_SUBFIELDS) {
+    const value = address[canonicalKey];
+    if (!value) continue;
+    const erpField = findErpField(mapping, `${canonicalPrefix}.${canonicalKey}`);
+    if (erpField) setPath(payload, erpField, value);
+  }
+}
+
 export interface NetSuiteSalesOrderPayload {
   entity: { id: string };
   item: { items: Array<Record<string, unknown>> };
@@ -40,6 +67,23 @@ export function canonicalOrderToSalesOrder(
 ): NetSuiteSalesOrderPayload {
   const payload: Record<string, unknown> = {};
 
+  // erp-connector-fixes-spec.md F7: shipping/tax/discount/gift-card totals were previously
+  // dropped entirely. shippingcost and exchangerate are real NetSuite SalesOrder REST fields;
+  // tax/discount/gift-card totals land in custbody custom fields by default (same pattern as
+  // order.id -> custbody_shopify_order_id) rather than a guessed standard field, since NetSuite's
+  // native tax/discount model is line- or discount-item-driven, not a simple settable header
+  // total -- TODO(D4): verify against a real account whether taxdetailsoverride or a configured
+  // discount item is the better fit once sandbox access exists. This is an honest placeholder
+  // that stops the data from silently vanishing, not a claim that these are the "correct" native
+  // fields. Percentage-type discounts aren't included in discountTotal (see CanonicalDiscount) --
+  // reconciling those needs the line items they apply to, not built here.
+  const shippingTotal = order.shippingLines.reduce((sum, s) => sum + s.amount, 0);
+  const taxTotal = order.taxLines.reduce((sum, t) => sum + t.amount, 0);
+  const discountTotal = order.discounts
+    .filter((d) => d.type !== "percentage")
+    .reduce((sum, d) => sum + d.value, 0);
+  const giftCardTotal = order.giftCards.reduce((sum, g) => sum + g.amountUsed, 0);
+
   const headerFields: Array<[string, unknown]> = [
     ["order.id", order.id],
     // NetSuite's trandate wants a plain date; Shopify's createdAt is a full timestamp.
@@ -49,12 +93,22 @@ export function canonicalOrderToSalesOrder(
     // through as-is until this can be verified/resolved against a real account.
     ["order.currency", order.currency],
     ["customer.id", { id: customerId }],
+    ["order.shippingTotal", shippingTotal],
+    ["order.taxTotal", taxTotal],
+    ["order.discountTotal", discountTotal],
+    ["order.giftCardTotal", giftCardTotal],
   ];
+  if (order.exchangeRateAtTransaction != null) {
+    headerFields.push(["order.exchangeRate", order.exchangeRateAtTransaction]);
+  }
 
   for (const [shopifyField, value] of headerFields) {
     const erpField = findErpField(mapping, shopifyField);
     if (erpField) setPath(payload, erpField, value);
   }
+
+  setAddress(payload, mapping, "billingAddress", order.billingAddress);
+  setAddress(payload, mapping, "shippingAddress", order.shippingAddress);
 
   const skuTarget = findErpField(mapping, "lineItem.sku") ?? "item";
   const qtyTarget = findErpField(mapping, "lineItem.quantity") ?? "quantity";

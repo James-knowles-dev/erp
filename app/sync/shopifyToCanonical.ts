@@ -13,6 +13,7 @@
 // 820982911946154508). Precision is already lost by the time JSON.parse hands us the payload --
 // nothing downstream can recover it. Affects order/customer/fulfillment ids from webhooks.
 
+import crypto from "node:crypto";
 import type { CanonicalAddress, CanonicalOrder } from "../models/canonical";
 
 interface ShopifyAddress {
@@ -47,6 +48,7 @@ interface ShopifyFulfillment {
 export interface ShopifyOrderPayload {
   id: number;
   created_at: string;
+  updated_at?: string;
   currency: string;
   total_discounts?: string;
   customer?: { id: number; email?: string; tags?: string } | null;
@@ -91,6 +93,25 @@ function toFulfillmentStatus(status: string | null): CanonicalOrder["fulfillment
   if (status === "fulfilled") return "fulfilled";
   if (status === "partial") return "partial";
   return "unfulfilled";
+}
+
+// Idempotency key for enqueueSyncJob (erp-connector-fixes-spec.md F4): a redelivered webhook for
+// an order that hasn't actually changed produces the same fingerprint and gets deduped even after
+// the original job has already reached a terminal status, while a genuinely new event for the
+// same order (status changed, line items changed) produces a different one and is still enqueued.
+// updated_at is the strongest single signal (Shopify bumps it on any order mutation) but isn't
+// trusted alone -- line item / status fields are included too in case a payload is redelivered
+// with a stale updated_at from an upstream retry queue.
+export function computeOrderFingerprint(order: ShopifyOrderPayload): string {
+  const relevant = {
+    updated_at: order.updated_at ?? null,
+    financial_status: order.financial_status,
+    fulfillment_status: order.fulfillment_status,
+    total_discounts: order.total_discounts ?? null,
+    line_items: order.line_items.map((li) => ({ sku: li.sku ?? "", quantity: li.quantity, price: li.price })),
+    fulfillments: order.fulfillments.map((f) => ({ id: f.id, status: f.status })),
+  };
+  return crypto.createHash("sha256").update(JSON.stringify(relevant)).digest("hex");
 }
 
 export function shopifyOrderToCanonical(shopId: string, order: ShopifyOrderPayload): CanonicalOrder {

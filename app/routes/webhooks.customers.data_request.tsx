@@ -1,15 +1,16 @@
 import type { ActionFunctionArgs } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
+import { handleCustomerDataRequest } from "../utils/gdpr.server";
 
 // Mandatory GDPR compliance webhook -- required for public App Store listing.
-// See erp-connector-spec.md §9. No customer PII is stored yet as of Milestone 0, so there's
-// nothing to collect here today; once sync_jobs/reconciliation_records hold customer data
-// (Milestone 3+), this handler needs to actually gather and return/export it per Shopify's
-// GDPR requirements rather than just acknowledging receipt.
+// See erp-connector-spec.md §9. Stages any stored order-linked data for the requested customer
+// (SyncJob.payload) per connection in the activity log -- see gdpr.server.ts for why that's the
+// interim delivery mechanism.
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { shop, topic, payload } = await authenticate.webhook(request);
 
-  console.log(`Received ${topic} webhook for ${shop}`, payload);
+  console.log(`Received ${topic} webhook for ${shop}`);
+  await handleCustomerDataRequest(shop, payload);
 
   return new Response();
 };

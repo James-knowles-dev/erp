@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import db from "../db.server";
 
 // Matches `activity_log` in erp-connector-dev-spec.md §5 -- the merchant-facing "plain-language
@@ -9,9 +10,13 @@ export async function logActivity(
   eventType: string,
   message: string,
   severity: "info" | "warning" | "error" = "info",
+  // Structured data for entries that carry customer PII (gdpr.server.ts's data_request export
+  // dump) -- kept out of `message` so a later customers/redact request can find and scrub it
+  // precisely. `null` for the vast majority of call sites, which have nothing PII-bearing to log.
+  metadata?: Prisma.InputJsonValue,
 ): Promise<void> {
   try {
-    await db.activityLog.create({ data: { connectionId, eventType, message, severity } });
+    await db.activityLog.create({ data: { connectionId, eventType, message, severity, metadata } });
   } catch (err) {
     console.error("Failed to write activity log entry:", err);
   }

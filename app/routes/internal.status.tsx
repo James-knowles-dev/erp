@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { useLoaderData } from "@remix-run/react";
 import { Queue } from "bullmq";
@@ -16,8 +17,16 @@ const WINDOW_MS = 24 * 60 * 60 * 1000;
 function checkAuth(request: Request): void {
   const token = process.env.INTERNAL_DASHBOARD_TOKEN;
   if (!token) throw new Response("INTERNAL_DASHBOARD_TOKEN is not set.", { status: 503 });
-  const header = request.headers.get("authorization");
-  if (header !== `Bearer ${token}`) throw new Response("Unauthorized", { status: 401 });
+  const header = request.headers.get("authorization") ?? "";
+  const expected = Buffer.from(`Bearer ${token}`);
+  const actual = Buffer.from(header);
+  // Fixed-size comparison buffer, not `actual`/`expected` directly -- timingSafeEqual throws on
+  // a length mismatch, and comparing against a length derived from attacker input would itself
+  // leak the token's length via which branch throws (erp-connector-fixes-spec.md F16).
+  const actualPadded = Buffer.alloc(expected.length);
+  actual.copy(actualPadded);
+  const authorized = actual.length === expected.length && crypto.timingSafeEqual(actualPadded, expected);
+  if (!authorized) throw new Response("Unauthorized", { status: 401 });
 }
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {

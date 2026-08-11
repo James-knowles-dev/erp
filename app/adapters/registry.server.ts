@@ -51,7 +51,10 @@ export interface ConnectFormField {
   name: string;
   label: string;
   helpText: string;
-  type?: "password";
+  // "url" fields are validated server-side against SSRF (see urlSafety.server.ts) before being
+  // persisted -- both fields marked this way are a merchant-supplied base URL the server later
+  // sends requests to with an auth header attached (erp-connector-fixes-spec.md F3).
+  type?: "password" | "url";
 }
 
 interface ErpAdapterEntry {
@@ -130,6 +133,7 @@ const ADAPTERS: Record<AvailableErpType, ErpAdapterEntry> = {
         name: "instanceUrl",
         label: "Acumatica Instance URL",
         helpText: 'e.g. "https://mycompany.acumatica.com" -- no trailing slash.',
+        type: "url",
       },
       {
         name: "clientId",
@@ -280,6 +284,7 @@ const ADAPTERS: Record<AvailableErpType, ErpAdapterEntry> = {
         helpText:
           'e.g. "https://erp.mycompany.com/Sage300WebApi" -- Sage 300 is typically self-hosted, so this ' +
           "needs to already be reachable from the internet (via your IT team or a reverse proxy). No trailing slash.",
+        type: "url",
       },
       {
         name: "company",

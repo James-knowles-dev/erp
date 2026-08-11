@@ -5,6 +5,7 @@
 
 import type { CanonicalInventoryLevel } from "../../models/canonical";
 import type { Sage300ItemIdMap } from "./types";
+import { fetchWithErpRetry } from "../shared/httpRetry.server";
 
 export class Sage300Client {
   private readonly baseUrl: string; // {serverUrl}/v1.0/-/{company}
@@ -15,8 +16,11 @@ export class Sage300Client {
     this.authHeader = authHeader;
   }
 
+  // No onUnauthorized here -- Sage 300 uses Basic Auth (username/password), not a token, so a 401
+  // means the stored credentials themselves are wrong, not expired. Nothing to refresh; retrying
+  // would just fail the same way. 429/network retry still applies via fetchWithErpRetry.
   private async request(path: string, init: RequestInit = {}): Promise<Response> {
-    return fetch(`${this.baseUrl}${path}`, {
+    return fetchWithErpRetry(`${this.baseUrl}${path}`, {
       ...init,
       headers: {
         Authorization: this.authHeader,

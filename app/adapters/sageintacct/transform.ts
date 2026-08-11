@@ -3,9 +3,20 @@
 // XML objects (2026-08-10 research), not verified against a live account -- see decision D4 in
 // erp-connector-build-plan.md.
 
-import type { CanonicalOrder, CanonicalRefund } from "../../models/canonical";
+import type { CanonicalAddress, CanonicalOrder, CanonicalRefund } from "../../models/canonical";
 import type { FieldMapping } from "../types";
 import type { SageIntacctItemIdMap } from "./types";
+
+// erp-connector-fixes-spec.md F7: address sub-fields computed and offered for mapping, but with
+// no default target -- see mapping.ts's comment on why (SHIPTO/BILLTO ambiguity on this object).
+const ADDRESS_SUBFIELDS: (keyof CanonicalAddress)[] = [
+  "address1",
+  "address2",
+  "city",
+  "provinceCode",
+  "zip",
+  "countryCode",
+];
 
 function findErpField(mapping: FieldMapping[], shopifyField: string): string | undefined {
   return mapping.find((m) => m.shopifyField === shopifyField)?.erpField;
@@ -47,6 +58,41 @@ export function canonicalOrderToSalesOrder(
 
   const currencyField = findErpField(mapping, "order.currency") ?? "CURRENCY";
   payload[currencyField] = order.currency;
+
+  // erp-connector-fixes-spec.md F7: previously dropped entirely. No default target for any of
+  // these (see mapping.ts) -- only set if a merchant/agency has retargeted the mapping to a field
+  // confirmed against their own account. Percentage-type discounts are excluded from
+  // discountTotal, same as the other adapters (see CanonicalDiscount).
+  const shippingTotal = order.shippingLines.reduce((sum, s) => sum + s.amount, 0);
+  const taxTotal = order.taxLines.reduce((sum, t) => sum + t.amount, 0);
+  const discountTotal = order.discounts
+    .filter((d) => d.type !== "percentage")
+    .reduce((sum, d) => sum + d.value, 0);
+  const giftCardTotal = order.giftCards.reduce((sum, g) => sum + g.amountUsed, 0);
+
+  const optionalHeaderFields: Array<[string, unknown]> = [
+    ["order.shippingTotal", shippingTotal],
+    ["order.taxTotal", taxTotal],
+    ["order.discountTotal", discountTotal],
+    ["order.giftCardTotal", giftCardTotal],
+  ];
+  if (order.exchangeRateAtTransaction != null) {
+    optionalHeaderFields.push(["order.exchangeRate", order.exchangeRateAtTransaction]);
+  }
+  for (const [shopifyField, value] of optionalHeaderFields) {
+    const erpField = findErpField(mapping, shopifyField);
+    if (erpField) payload[erpField] = value;
+  }
+
+  for (const prefix of ["billingAddress", "shippingAddress"] as const) {
+    const address = prefix === "billingAddress" ? order.billingAddress : order.shippingAddress;
+    for (const subfield of ADDRESS_SUBFIELDS) {
+      const value = address[subfield];
+      if (!value) continue;
+      const erpField = findErpField(mapping, `${prefix}.${subfield}`);
+      if (erpField) payload[erpField] = value;
+    }
+  }
 
   const skuField = findErpField(mapping, "lineItem.sku") ?? "ITEMID";
   const qtyField = findErpField(mapping, "lineItem.quantity") ?? "QUANTITY";
@@ -95,12 +141,17 @@ export function canonicalRefundToSageIntacctOperation(
       // -- there's no confirmed way to carry SKU-level detail onto the adjustment itself via the
       // standard object; amount-only is what create_aradjustment reliably supports.
       const totalAmount = refund.lineItems.reduce((sum, li) => sum + li.amount, 0);
+      // erp-connector-fixes-spec.md F6: this is a summed quantity, not a line-item count -- a
+      // refund of one line item with quantity 3 must report 3 here, not 1. Previously used
+      // `refund.lineItems.length`, masked by a test fixture with exactly one line item of
+      // quantity 1 (where the two happen to be equal).
+      const totalQuantity = refund.lineItems.reduce((sum, li) => sum + li.quantity, 0);
       return {
         type: "ar_adjustment",
         payload: {
           INVOICENO: refund.originalErpDocumentId,
           ARADJUSTMENTITEMS: {
-            ARADJUSTMENTITEM: [{ AMOUNT: totalAmount, [qtyField]: refund.lineItems.length }],
+            ARADJUSTMENTITEM: [{ AMOUNT: totalAmount, [qtyField]: totalQuantity }],
           },
         },
       };

@@ -16,15 +16,23 @@ import type { FieldMapping } from "../adapters/types";
 import db from "../db.server";
 
 // Shared with backfill.server.ts (same field set: both need enough of the order to build a
-// CanonicalOrder), which passes $query as a created_at date filter instead of leaving it null.
+// CanonicalOrder), which passes $query as a created_at date filter instead of leaving it null, and
+// pages through $after (erp-connector-fixes-spec.md F5) since a backfill window can hold more than
+// one page of orders -- preflight.server.ts intentionally stays single-page (it's a sample check
+// against the last 50 orders, not an exhaustive sync).
 export const ORDERS_QUERY = `#graphql
-  query RecentOrders($first: Int!, $query: String) {
-    orders(first: $first, query: $query, sortKey: CREATED_AT, reverse: true) {
+  query RecentOrders($first: Int!, $query: String, $after: String) {
+    orders(first: $first, query: $query, after: $after, sortKey: CREATED_AT, reverse: true) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
       edges {
         node {
           id
           name
           createdAt
+          updatedAt
           currencyCode
           displayFinancialStatus
           displayFulfillmentStatus
@@ -53,6 +61,7 @@ export interface GraphQLOrderNode {
   id: string;
   name: string;
   createdAt: string;
+  updatedAt: string;
   currencyCode: string;
   displayFinancialStatus: string;
   displayFulfillmentStatus: string;
@@ -81,6 +90,7 @@ export function toShopifyOrderPayload(node: GraphQLOrderNode): ShopifyOrderPaylo
   return {
     id: gidToNumericId(node.id),
     created_at: node.createdAt,
+    updated_at: node.updatedAt,
     currency: node.currencyCode,
     total_discounts: node.totalDiscountsSet.shopMoney.amount,
     customer: node.customer ? { id: gidToNumericId(node.customer.id), email: node.customer.email ?? undefined } : null,

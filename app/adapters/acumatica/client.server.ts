@@ -5,6 +5,8 @@
 import type { CanonicalInventoryLevel } from "../../models/canonical";
 import type { AcumaticaRefundOperation } from "./transform";
 import type { AcumaticaConfig, AcumaticaTokens } from "./types";
+import { refreshAccessToken } from "./auth.server";
+import { fetchWithErpRetry } from "../shared/httpRetry.server";
 
 // TODO(D4): Acumatica versions its contract-based endpoint per instance (customers can be on
 // different versions), so a hardcoded version is a real risk -- this should probably become a
@@ -22,7 +24,7 @@ interface AcumaticaValueField {
 
 export class AcumaticaClient {
   private readonly config: AcumaticaConfig;
-  private readonly tokens: AcumaticaTokens;
+  private tokens: AcumaticaTokens;
 
   constructor(config: AcumaticaConfig, tokens: AcumaticaTokens) {
     this.config = config;
@@ -30,14 +32,23 @@ export class AcumaticaClient {
   }
 
   private async request(path: string, init: RequestInit = {}): Promise<Response> {
-    return fetch(`${restBaseUrl(this.config.instanceUrl)}${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${this.tokens.accessToken}`,
-        "Content-Type": "application/json",
-        ...init.headers,
+    return fetchWithErpRetry(
+      `${restBaseUrl(this.config.instanceUrl)}${path}`,
+      {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${this.tokens.accessToken}`,
+          "Content-Type": "application/json",
+          ...init.headers,
+        },
       },
-    });
+      {
+        onUnauthorized: async () => {
+          this.tokens = await refreshAccessToken(this.config, this.tokens.refreshToken);
+          return `Bearer ${this.tokens.accessToken}`;
+        },
+      },
+    );
   }
 
   async testConnection(): Promise<{ success: boolean; message?: string }> {

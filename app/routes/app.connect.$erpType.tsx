@@ -7,6 +7,7 @@ import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { getConnection, storePartialErpConfig } from "../models/connections.server";
 import { buildAuthorizationUrl, getConnectFormFields, getConnectIntro } from "../adapters/registry.server";
+import { validateExternalUrl } from "../utils/urlSafety.server";
 
 function redirectUri(request: Request, erpType: string): string {
   return `${new URL(request.url).origin}/app/connect/${erpType}/callback`;
@@ -48,6 +49,17 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
 
   if (!connectionId || Object.values(values).some((v) => !v)) {
     throw new Response("Missing required fields", { status: 400 });
+  }
+
+  // SSRF guard (erp-connector-fixes-spec.md F3): "url" fields (Acumatica's instanceUrl, Sage
+  // 300's serverUrl) are a merchant-supplied host the server later sends authenticated requests
+  // to -- reject anything that isn't a public https:// host before it's ever persisted.
+  for (const field of fields) {
+    if (field.type !== "url") continue;
+    const result = await validateExternalUrl(values[field.name]);
+    if (!result.valid) {
+      throw new Response(`${field.label}: ${result.reason}`, { status: 400 });
+    }
   }
 
   await storePartialErpConfig(connectionId, values);

@@ -60,6 +60,69 @@ describe("canonicalOrderToSalesOrder", () => {
   it("throws if a line item's SKU has no resolved Business Central item id", () => {
     expect(() => canonicalOrderToSalesOrder(baseOrder, mapping, {}, "C0001")).toThrow(/WIDGET-1/);
   });
+
+  // Regression coverage for erp-connector-fixes-spec.md F7.
+  it("maps both addresses, but leaves shipping/tax/discount/gift-card/exchange-rate unmapped by default", () => {
+    const richOrder: CanonicalOrder = {
+      ...baseOrder,
+      exchangeRateAtTransaction: 1.35,
+      billingAddress: {
+        address1: "1 Main St",
+        address2: "Suite 2",
+        city: "Springfield",
+        provinceCode: "IL",
+        countryCode: "US",
+        zip: "62704",
+      },
+      shippingAddress: {
+        address1: "2 Oak Ave",
+        city: "Shelbyville",
+        provinceCode: "IL",
+        countryCode: "US",
+        zip: "62565",
+      },
+      discounts: [
+        { type: "fixed_amount", value: 5, appliesTo: "order" },
+        { type: "percentage", value: 10, appliesTo: "order" },
+      ],
+      taxLines: [{ title: "State Tax", rate: 0.07, amount: 2.8 }],
+      shippingLines: [{ title: "Standard", amount: 6.5 }],
+      giftCards: [{ code: "GC-1", amountUsed: 10 }],
+    };
+
+    const payload = canonicalOrderToSalesOrder(richOrder, mapping, { "WIDGET-1": "item-guid-1" }, "C0001");
+
+    expect(payload.billToAddressLine1).toBe("1 Main St");
+    expect(payload.billToAddressLine2).toBe("Suite 2");
+    expect(payload.billToCity).toBe("Springfield");
+    expect(payload.billToState).toBe("IL");
+    expect(payload.billToPostCode).toBe("62704");
+    expect(payload.billToCountry).toBe("US");
+    expect(payload.shipToAddressLine1).toBe("2 Oak Ave");
+    expect(payload.shipToCity).toBe("Shelbyville");
+
+    // No default target exists for these yet (see mapping.ts) -- confirms they're computed but
+    // genuinely unmapped, not silently mis-set, until a merchant/agency publishes a custom field.
+    expect(payload.shippingTotal).toBeUndefined();
+    expect(payload.taxTotal).toBeUndefined();
+    expect(payload.discountTotal).toBeUndefined();
+    expect(payload.giftCardTotal).toBeUndefined();
+    expect(payload.exchangeRate).toBeUndefined();
+  });
+
+  it("sets a computed total once mapping is retargeted to a real field", () => {
+    const richOrder: CanonicalOrder = {
+      ...baseOrder,
+      shippingLines: [{ title: "Standard", amount: 6.5 }],
+    };
+    const customMapping = mapping.map((m) =>
+      m.shopifyField === "order.shippingTotal" ? { ...m, erpField: "shippingChargeAmount" } : m,
+    );
+
+    const payload = canonicalOrderToSalesOrder(richOrder, customMapping, { "WIDGET-1": "item-guid-1" }, "C0001");
+
+    expect(payload.shippingChargeAmount).toBe(6.5);
+  });
 });
 
 describe("canonicalRefundToBusinessCentralOperation", () => {

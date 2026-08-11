@@ -6,10 +6,12 @@
 import type { CanonicalInventoryLevel } from "../../models/canonical";
 import type { BrightpearlRefundOperation } from "./transform";
 import type { BrightpearlProductIdMap, BrightpearlTokens } from "./types";
+import { refreshAccessToken } from "./auth.server";
+import { fetchWithErpRetry } from "../shared/httpRetry.server";
 
 export class BrightpearlClient {
   private readonly accountCode: string;
-  private readonly tokens: BrightpearlTokens;
+  private tokens: BrightpearlTokens;
 
   constructor(accountCode: string, tokens: BrightpearlTokens) {
     this.accountCode = accountCode;
@@ -21,14 +23,23 @@ export class BrightpearlClient {
   }
 
   private async request(path: string, init: RequestInit = {}): Promise<Response> {
-    return fetch(`${this.baseUrl()}${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${this.tokens.accessToken}`,
-        "Content-Type": "application/json",
-        ...init.headers,
+    return fetchWithErpRetry(
+      `${this.baseUrl()}${path}`,
+      {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${this.tokens.accessToken}`,
+          "Content-Type": "application/json",
+          ...init.headers,
+        },
       },
-    });
+      {
+        onUnauthorized: async () => {
+          this.tokens = await refreshAccessToken(this.accountCode, this.tokens.refreshToken);
+          return `Bearer ${this.tokens.accessToken}`;
+        },
+      },
+    );
   }
 
   async testConnection(): Promise<{ success: boolean; message?: string }> {

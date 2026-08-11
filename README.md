@@ -48,6 +48,21 @@ this commit.
 5. `npm run dev` (this is `shopify app dev` — it'll prompt you to log in to Partners and pick or
    create a dev store the first time).
 
+## Running the real-Postgres integration suite
+
+`npm run test` (used above and in CI) never touches a real database. One suite needs one anyway —
+`app/sync/queue.dedup.integration.test.ts` proves the `SyncJob` unique constraint actually blocks a
+duplicate webhook under real concurrency (erp-connector-fixes-spec.md F4), which a mocked test
+can't demonstrate. To run it locally:
+
+```sh
+docker compose -f docker-compose.test.yml up -d
+DATABASE_URL="postgresql://postgres:postgres@localhost:55432/erp_test" npm run test:integration
+```
+
+This also runs in CI as a separate `test-integration` job (see `.github/workflows/ci.yml`), against
+a Postgres service container rather than the compose file above.
+
 ## Node version
 
 This machine had no Node install; `nvm` was installed to `~/.nvm` and Node 24 (LTS) set as

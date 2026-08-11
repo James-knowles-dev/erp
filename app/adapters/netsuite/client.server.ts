@@ -6,6 +6,8 @@
 import type { CanonicalInventoryLevel } from "../../models/canonical";
 import type { NetSuiteRefundOperation } from "./transform";
 import type { NetSuiteConfig, NetSuiteItemIdMap, NetSuiteTokens } from "./types";
+import { refreshAccessToken } from "./auth.server";
+import { fetchWithErpRetry } from "../shared/httpRetry.server";
 
 function restBaseUrl(accountId: string): string {
   return `https://${accountId}.suitetalk.api.netsuite.com/services/rest`;
@@ -13,7 +15,7 @@ function restBaseUrl(accountId: string): string {
 
 export class NetSuiteClient {
   private readonly config: NetSuiteConfig;
-  private readonly tokens: NetSuiteTokens;
+  private tokens: NetSuiteTokens;
 
   constructor(config: NetSuiteConfig, tokens: NetSuiteTokens) {
     this.config = config;
@@ -21,15 +23,25 @@ export class NetSuiteClient {
   }
 
   private async request(path: string, init: RequestInit = {}): Promise<Response> {
-    const response = await fetch(`${restBaseUrl(this.config.accountId)}${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${this.tokens.accessToken}`,
-        "Content-Type": "application/json",
-        ...init.headers,
+    return fetchWithErpRetry(
+      `${restBaseUrl(this.config.accountId)}${path}`,
+      {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${this.tokens.accessToken}`,
+          "Content-Type": "application/json",
+          ...init.headers,
+        },
       },
-    });
-    return response;
+      {
+        onUnauthorized: async () => {
+          // See httpRetry.server.ts's header comment -- this refresh is in-memory for the rest of
+          // this job only, not persisted back to storage.
+          this.tokens = await refreshAccessToken(this.config, this.tokens.refreshToken);
+          return `Bearer ${this.tokens.accessToken}`;
+        },
+      },
+    );
   }
 
   async testConnection(): Promise<{ success: boolean; message?: string }> {

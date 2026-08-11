@@ -1,4 +1,5 @@
-import type { FieldMapping, FieldMappingTemplate, ValidationIssue } from "../types";
+import type { FieldMapping, FieldMappingTemplate } from "../types";
+import { buildValidateMapping } from "../shared/validateMapping";
 
 // Default field mappings for a Business Central connection's "order" entity, mirroring the
 // NetSuite/Acumatica adapters' mapping.ts files and defaults for the same shopifyField set.
@@ -17,43 +18,35 @@ export function getDefaultFieldMappings(): FieldMappingTemplate {
     { shopifyField: "lineItem.sku", erpField: "lineObjectNumber", isRequired: true },
     { shopifyField: "lineItem.quantity", erpField: "quantity", isRequired: true },
     { shopifyField: "lineItem.unitPrice", erpField: "unitPrice", isRequired: true },
+    // erp-connector-fixes-spec.md F7 -- see transform.ts's header comment. Unlike NetSuite/
+    // Acumatica, there's no safe custom-field default to invent for these (Business Central
+    // custom fields need a published AL extension, same gap as shopifyOrderId above), so they're
+    // left unmapped (erpField: "") by default -- present in the mapping UI so a merchant/agency
+    // that's published one can retarget it, rather than not offering the option at all.
+    { shopifyField: "order.shippingTotal", erpField: "", isRequired: false },
+    { shopifyField: "order.taxTotal", erpField: "", isRequired: false },
+    { shopifyField: "order.discountTotal", erpField: "", isRequired: false },
+    { shopifyField: "order.giftCardTotal", erpField: "", isRequired: false },
+    { shopifyField: "order.exchangeRate", erpField: "", isRequired: false },
+    // Address fields target Business Central's documented v2.0 salesOrders entity fields -- see
+    // transform.ts's ADDRESS_FIELDS comment for the one flagged as uncertain (region/state).
+    { shopifyField: "billingAddress.address1", erpField: "billToAddressLine1", isRequired: false },
+    { shopifyField: "billingAddress.address2", erpField: "billToAddressLine2", isRequired: false },
+    { shopifyField: "billingAddress.city", erpField: "billToCity", isRequired: false },
+    { shopifyField: "billingAddress.provinceCode", erpField: "billToState", isRequired: false },
+    { shopifyField: "billingAddress.zip", erpField: "billToPostCode", isRequired: false },
+    { shopifyField: "billingAddress.countryCode", erpField: "billToCountry", isRequired: false },
+    { shopifyField: "shippingAddress.address1", erpField: "shipToAddressLine1", isRequired: false },
+    { shopifyField: "shippingAddress.address2", erpField: "shipToAddressLine2", isRequired: false },
+    { shopifyField: "shippingAddress.city", erpField: "shipToCity", isRequired: false },
+    { shopifyField: "shippingAddress.provinceCode", erpField: "shipToState", isRequired: false },
+    { shopifyField: "shippingAddress.zip", erpField: "shipToPostCode", isRequired: false },
+    { shopifyField: "shippingAddress.countryCode", erpField: "shipToCountry", isRequired: false },
   ];
 
   return { entityType: "order", mappings };
 }
 
-export function validateMapping(mapping: FieldMapping[]): ValidationIssue[] {
-  const issues: ValidationIssue[] = [];
-  const required = getDefaultFieldMappings().mappings.filter((m) => m.isRequired);
-
-  for (const req of required) {
-    const present = mapping.find((m) => m.shopifyField === req.shopifyField);
-    if (!present) {
-      issues.push({
-        field: req.shopifyField,
-        severity: "error",
-        message: `${req.shopifyField} is required by Business Central (target: ${req.erpField}) but has no mapping.`,
-      });
-    } else if (!present.erpField) {
-      issues.push({
-        field: req.shopifyField,
-        severity: "error",
-        message: `${req.shopifyField} is mapped but has no Business Central target field.`,
-      });
-    }
-  }
-
-  const seen = new Set<string>();
-  for (const m of mapping) {
-    if (seen.has(m.erpField)) {
-      issues.push({
-        field: m.shopifyField,
-        severity: "warning",
-        message: `Multiple Shopify fields map to the same Business Central field "${m.erpField}" -- the last one applied wins.`,
-      });
-    }
-    seen.add(m.erpField);
-  }
-
-  return issues;
-}
+export const validateMapping = buildValidateMapping("Business Central", () =>
+  getDefaultFieldMappings().mappings.filter((m) => m.isRequired),
+);

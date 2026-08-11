@@ -74,6 +74,66 @@ describe("canonicalOrderToSalesOrder", () => {
     expect(payload.currencyCode).toBe("USD");
     expect(payload.currency).toBeUndefined();
   });
+
+  // Regression coverage for erp-connector-fixes-spec.md F7: tax/discount/shipping/gift-card/
+  // address were previously dropped entirely -- this order carries all of them plus an exchange
+  // rate, so the resulting payload's totals should reconcile against the canonical order.
+  it("maps shipping/tax/discount/gift-card totals, exchange rate, and both addresses", () => {
+    const richOrder: CanonicalOrder = {
+      ...baseOrder,
+      exchangeRateAtTransaction: 1.35,
+      billingAddress: {
+        address1: "1 Main St",
+        address2: "Suite 2",
+        city: "Springfield",
+        provinceCode: "IL",
+        countryCode: "US",
+        zip: "62704",
+      },
+      shippingAddress: {
+        address1: "2 Oak Ave",
+        city: "Shelbyville",
+        provinceCode: "IL",
+        countryCode: "US",
+        zip: "62565",
+      },
+      discounts: [
+        { type: "fixed_amount", value: 5, appliesTo: "order" },
+        { type: "percentage", value: 10, appliesTo: "order" }, // excluded -- see transform.ts's comment
+      ],
+      taxLines: [{ title: "State Tax", rate: 0.07, amount: 2.8 }],
+      shippingLines: [{ title: "Standard", amount: 6.5 }],
+      giftCards: [{ code: "GC-1", amountUsed: 10 }],
+    };
+
+    const payload = canonicalOrderToSalesOrder(richOrder, mapping, { "WIDGET-1": "999" }, "42");
+
+    expect(payload.shippingcost).toBe(6.5);
+    expect(payload.custbody_shopify_tax_total).toBe(2.8);
+    expect(payload.custbody_shopify_discount_total).toBe(5);
+    expect(payload.custbody_shopify_giftcard_total).toBe(10);
+    expect(payload.exchangerate).toBe(1.35);
+    expect(payload.billingaddress).toEqual({
+      addr1: "1 Main St",
+      addr2: "Suite 2",
+      city: "Springfield",
+      state: "IL",
+      zip: "62704",
+      country: "US",
+    });
+    expect(payload.shippingaddress).toEqual({
+      addr1: "2 Oak Ave",
+      city: "Shelbyville",
+      state: "IL",
+      zip: "62565",
+      country: "US",
+    });
+  });
+
+  it("omits exchange rate entirely when the order has none", () => {
+    const payload = canonicalOrderToSalesOrder(baseOrder, mapping, { "WIDGET-1": "999" }, "42");
+    expect(payload.exchangerate).toBeUndefined();
+  });
 });
 
 describe("canonicalRefundToNetSuiteOperation", () => {

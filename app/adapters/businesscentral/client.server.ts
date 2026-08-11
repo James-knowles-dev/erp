@@ -5,6 +5,8 @@
 import type { CanonicalInventoryLevel } from "../../models/canonical";
 import type { BusinessCentralRefundOperation } from "./transform";
 import type { BusinessCentralConfig, BusinessCentralItemIdMap, BusinessCentralTokens } from "./types";
+import { refreshAccessToken } from "./auth.server";
+import { fetchWithErpRetry } from "../shared/httpRetry.server";
 
 function companiesBaseUrl(config: BusinessCentralConfig): string {
   return `https://api.businesscentral.dynamics.com/v2.0/${config.tenantId}/${config.environment}/api/v2.0/companies(${config.companyId})`;
@@ -12,7 +14,7 @@ function companiesBaseUrl(config: BusinessCentralConfig): string {
 
 export class BusinessCentralClient {
   private readonly config: BusinessCentralConfig;
-  private readonly tokens: BusinessCentralTokens;
+  private tokens: BusinessCentralTokens;
 
   constructor(config: BusinessCentralConfig, tokens: BusinessCentralTokens) {
     this.config = config;
@@ -20,14 +22,23 @@ export class BusinessCentralClient {
   }
 
   private async request(path: string, init: RequestInit = {}): Promise<Response> {
-    return fetch(`${companiesBaseUrl(this.config)}${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${this.tokens.accessToken}`,
-        "Content-Type": "application/json",
-        ...init.headers,
+    return fetchWithErpRetry(
+      `${companiesBaseUrl(this.config)}${path}`,
+      {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${this.tokens.accessToken}`,
+          "Content-Type": "application/json",
+          ...init.headers,
+        },
       },
-    });
+      {
+        onUnauthorized: async () => {
+          this.tokens = await refreshAccessToken(this.config, this.tokens.refreshToken);
+          return `Bearer ${this.tokens.accessToken}`;
+        },
+      },
+    );
   }
 
   async testConnection(): Promise<{ success: boolean; message?: string }> {

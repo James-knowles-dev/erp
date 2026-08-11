@@ -6,6 +6,7 @@ import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { createConnection, getActiveConnectionForShop, getOrCreateShop } from "../models/connections.server";
 import { SUPPORTED_ERPS } from "../adapters/registry.server";
+import { earliestIncompleteStep, loadWizardProgress } from "../models/wizardProgress.server";
 
 // Wizard step 1 (product spec §7.1 step 1): pick an ERP. All six adapters (NetSuite, Acumatica,
 // Business Central, Sage Intacct, Sage 300, Brightpearl) are built as of Milestone 9 -- the
@@ -36,8 +37,17 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     // later lands in 'error' status (e.g. testConnection failed in the callback). Sending an
     // 'error' connection to /mapping would just bounce it straight back here, since that route
     // requires status === 'active' -- so status is checked first, ahead of credentialsEncrypted.
-    const nextStep =
-      existing.status === "active" && existing.credentialsEncrypted ? "mapping" : null;
+    //
+    // Resume target used to be a flat "mapping or nothing" (erp-connector-fixes-spec.md F9's
+    // related UX note): a merchant who'd gotten as far as edge-cases or backfill and came back to
+    // /app/connect got bounced to mapping again, not the step they were actually on. Now resumes
+    // at the earliest step with unsaved data, same logic requireWizardStep uses to gate forward
+    // navigation, so the two can't disagree with each other.
+    let nextStep: string | null = null;
+    if (existing.status === "active" && existing.credentialsEncrypted) {
+      const progress = await loadWizardProgress(existing.id);
+      nextStep = earliestIncompleteStep(progress) ?? "golive";
+    }
     throw redirect(
       nextStep
         ? `/app/connect/${existing.erpType}/${nextStep}?connectionId=${existing.id}`

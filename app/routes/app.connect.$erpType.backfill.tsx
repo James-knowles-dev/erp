@@ -6,6 +6,7 @@ import { Page, Layout, Card, BlockStack, Text, Button, ChoiceList } from "@shopi
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { getConnection, setBackfillWindow } from "../models/connections.server";
+import { requireWizardStep } from "../models/wizardProgress.server";
 
 const CHOICES = [
   { label: "None -- only sync orders placed from now on", value: "none" },
@@ -13,13 +14,15 @@ const CHOICES = [
   { label: "Last 90 days", value: "90d" },
 ];
 
-export const loader = async ({ request }: LoaderFunctionArgs) => {
+export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   await authenticate.admin(request);
   const connectionId = new URL(request.url).searchParams.get("connectionId");
   if (!connectionId) throw redirect("/app/connect");
 
   const connection = await getConnection(connectionId);
   if (!connection || connection.status !== "active") throw redirect("/app/connect");
+
+  await requireWizardStep(connectionId, params.erpType!, "backfill");
 
   return { connectionId, backfillWindow: connection.backfillWindow ?? "none" };
 };

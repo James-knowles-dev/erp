@@ -1,0 +1,24 @@
+# Disposable Postgres for the real-DB concurrency test (erp-connector-fixes-spec.md F4 follow-up,
+# hardening pass 2026-08-11) -- app/sync/queue.dedup.integration.test.ts proves the SyncJob unique
+# constraint actually blocks a concurrent duplicate-webhook race, which a mocked test can assert
+# the application-code reaction to but can't prove about the database itself.
+#
+# Usage: docker compose -f docker-compose.test.yml up -d
+#        DATABASE_URL="postgresql://postgres:postgres@localhost:55432/erp_test" npm run test:integration
+#
+# Mapped to 55432 (not Postgres's default 5432) so this doesn't collide with any Postgres you
+# already run locally.
+services:
+  postgres-test:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: erp_test
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 2s
+      retries: 15

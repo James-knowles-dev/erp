@@ -63,7 +63,7 @@ model Shop {
 model ErpConnection {
   id                    String    @id @default(uuid())
   shopId                String    @map("shop_id")
-  shop                  Shop      @relation(fields: [shopId], references: [id])
+  shop                  Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
   erpType               String    @map("erp_type") // 'netsuite' | 'acumatica' | 'business_central' | 'sage_intacct' | 'sage_300' | 'brightpearl'
   environment           String // 'sandbox' | 'production'
   // Nullable, unlike the NOT NULL in the original erp-connector-dev-spec.md §5 SQL -- found
@@ -105,12 +105,13 @@ model ErpConnection {
 model FieldMapping {
   id             String        @id @default(uuid())
   connectionId   String        @map("connection_id")
-  connection     ErpConnection @relation(fields: [connectionId], references: [id])
+  connection     ErpConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   shopifyField   String        @map("shopify_field")
   erpField       String        @map("erp_field")
   transformRule  String?       @map("transform_rule")
   isRequired     Boolean       @default(false) @map("is_required")
 
+  @@index([connectionId])
   @@map("field_mappings")
 }
 
@@ -118,10 +119,11 @@ model FieldMapping {
 model EdgeCaseRule {
   id           String        @id @default(uuid())
   connectionId String        @map("connection_id")
-  connection   ErpConnection @relation(fields: [connectionId], references: [id])
+  connection   ErpConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   ruleKey      String        @map("rule_key") // e.g. 'backorder_behavior', 'guest_customer_handling'
   ruleValue    String        @map("rule_value")
 
+  @@index([connectionId])
   @@map("edge_case_rules")
 }
 
@@ -130,10 +132,20 @@ model EdgeCaseRule {
 // redelivery for work already queued/processing is a no-op (see enqueueSyncJob() in
 // app/sync/queue.server.ts), but a genuinely new event for the same resource (e.g. orders/updated
 // after orders/create already succeeded) is not blocked, since only non-terminal jobs count.
+//
+// contentFingerprint (fix pass, erp-connector-fixes-spec.md F4): the index above only caught
+// redeliveries of a still in-flight job -- once a job reached a terminal status, a redelivered
+// webhook created a brand-new row and pushed to the ERP again. The unique constraint below closes
+// that gap at the DB level (not just app-level check-then-act): a redelivery with an identical
+// fingerprint for the same resource now fails on insert instead of silently duplicating, while a
+// genuinely new event for the same resource (different fingerprint -- status changed, line items
+// changed) is still allowed through. Nullable because non-order entity types don't compute one
+// yet (see queue.server.ts) -- Postgres treats multiple NULLs as distinct, so this constraint
+// doesn't protect those until they do.
 model SyncJob {
   id                  String    @id @default(uuid())
   connectionId        String    @map("connection_id")
-  connection          ErpConnection @relation(fields: [connectionId], references: [id])
+  connection          ErpConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   entityType          String    @map("entity_type") // 'order' | 'refund' | 'inventory' | 'customer' | 'product'
   direction           String // 'shopify_to_erp' | 'erp_to_shopify'
   shopifyReferenceId  String?   @map("shopify_reference_id")
@@ -142,6 +154,7 @@ model SyncJob {
   attempts            Int       @default(0)
   lastError           String?   @map("last_error")
   payload             Json?
+  contentFingerprint  String?   @map("content_fingerprint")
   createdAt           DateTime  @default(now()) @map("created_at")
   completedAt         DateTime? @map("completed_at")
   // Added building Milestone 7: 'live' pushes to the ERP as normal; 'shadow' runs the same
@@ -152,6 +165,7 @@ model SyncJob {
   mode                String    @default("live")
 
   @@index([connectionId, entityType, shopifyReferenceId, status])
+  @@unique([connectionId, entityType, shopifyReferenceId, contentFingerprint], map: "sync_jobs_dedup_fingerprint_key")
   @@map("sync_jobs")
 }
 
@@ -159,7 +173,7 @@ model SyncJob {
 model ReconciliationRecord {
   id                 String    @id @default(uuid())
   connectionId       String    @map("connection_id")
-  connection         ErpConnection @relation(fields: [connectionId], references: [id])
+  connection         ErpConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   shopifyOrderId     String    @map("shopify_order_id")
   shopifyTotal       Decimal?  @map("shopify_total")
   erpTotal           Decimal?  @map("erp_total")
@@ -175,11 +189,17 @@ model ReconciliationRecord {
 model ActivityLog {
   id           String        @id @default(uuid())
   connectionId String        @map("connection_id")
-  connection   ErpConnection @relation(fields: [connectionId], references: [id])
+  connection   ErpConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   eventType    String        @map("event_type")
   message      String
   severity     String // 'info' | 'warning' | 'error'
   occurredAt   DateTime      @default(now()) @map("occurred_at")
+  // Added for GDPR data-request staging (erp-connector-fixes-spec.md F1, hardening pass
+  // 2026-08-11): structured payload for entries that carry customer PII (e.g. gdpr_data_request's
+  // export dump), kept separate from `message` so a later customers/redact request can find and
+  // scrub the PII fields precisely instead of doing substring surgery on free text. Null for the
+  // vast majority of log entries, which have no PII to carry.
+  metadata Json? @map("metadata")
 
   @@index([connectionId, occurredAt])
   @@map("activity_log")
@@ -193,7 +213,7 @@ model ActivityLog {
 model WebhookSubscription {
   id             String        @id @default(uuid())
   connectionId   String        @map("connection_id")
-  connection     ErpConnection @relation(fields: [connectionId], references: [id])
+  connection     ErpConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   url            String
   eventTypes     String        @map("event_types")
   secretEncrypted String       @map("secret_encrypted") // HMAC-signs outgoing deliveries
@@ -245,8 +265,11 @@ model AgencyClientLink {
   id       String @id @default(uuid())
   agencyId String @map("agency_id")
   agency   Agency @relation(fields: [agencyId], references: [id])
-  shopId   String @map("shop_id")
-  shop     Shop   @relation(fields: [shopId], references: [id])
+  shopId   String @unique @map("shop_id") // one agency per shop (erp-connector-fixes-spec.md F14)
+                                           // -- previously enforced only by an application-level
+                                           // findFirst in redeemInviteCode(), a TOCTOU race on
+                                           // concurrent invite-code redemptions.
+  shop     Shop   @relation(fields: [shopId], references: [id], onDelete: Cascade)
   role     String // 'admin' | 'viewer' -- the agency's own access level on this client, unrelated
                   // to which staff member is acting (see AgencyUser.role for that)
 
@@ -263,7 +286,7 @@ model AgencyUserClientAccess {
   agencyUserId       String           @map("agency_user_id")
   agencyUser         AgencyUser       @relation(fields: [agencyUserId], references: [id])
   agencyClientLinkId String           @map("agency_client_link_id")
-  agencyClientLink   AgencyClientLink @relation(fields: [agencyClientLinkId], references: [id])
+  agencyClientLink   AgencyClientLink @relation(fields: [agencyClientLinkId], references: [id], onDelete: Cascade)
 
   @@unique([agencyUserId, agencyClientLinkId])
   @@map("agency_user_client_access")

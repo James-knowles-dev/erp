@@ -15,6 +15,7 @@
     "lint": "eslint --cache --cache-location ./node_modules/.cache/eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "shopify": "shopify",
     "prisma": "prisma",
     "graphql-codegen": "graphql-codegen",

@@ -6,6 +6,7 @@
 import { XMLBuilder, XMLParser } from "fast-xml-parser";
 import type { CanonicalInventoryLevel } from "../../models/canonical";
 import type { SageIntacctItemIdMap, SageIntacctSession } from "./types";
+import { fetchWithErpRetry } from "../shared/httpRetry.server";
 
 const builder = new XMLBuilder({ ignoreAttributes: false, attributeNamePrefix: "@_" });
 const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_" });
@@ -40,7 +41,10 @@ export class SageIntacctClient {
       },
     });
 
-    const response = await fetch(this.session.endpoint, {
+    // No onUnauthorized here -- Intacct's XML gateway signals an expired session as an HTTP 200
+    // with a non-success <result> body (checked below), not an HTTP 401, so 401-refresh doesn't
+    // apply to this transport. 429/network retry still applies via fetchWithErpRetry.
+    const response = await fetchWithErpRetry(this.session.endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/xml" },
       body: requestBody,

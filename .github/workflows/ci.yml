@@ -30,3 +30,38 @@ jobs:
       - run: npm run build
         env:
           DATABASE_URL: "postgresql://ci:ci@localhost:5432/ci"
+
+  # Separate job so a real-DB failure doesn't block the fast lint/typecheck/build feedback above.
+  # Runs the erp-connector-fixes-spec.md F4 real-Postgres concurrency test (see
+  # app/sync/queue.dedup.integration.test.ts, docker-compose.test.yml) against a service container
+  # instead of Docker Compose -- GitHub Actions runs service containers natively, no compose file
+  # needed in CI even though local dev uses docker-compose.test.yml for the same image/credentials.
+  test-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres-test:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: erp_test
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run test:integration
+        env:
+          DATABASE_URL: "postgresql://postgres:postgres@localhost:55432/erp_test"

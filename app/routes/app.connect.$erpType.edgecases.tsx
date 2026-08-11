@@ -7,6 +7,7 @@ import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { getConnection, getEdgeCaseRules, saveEdgeCaseRules } from "../models/connections.server";
 import { SUPPORTED_ERPS } from "../adapters/registry.server";
+import { requireWizardStep } from "../models/wizardProgress.server";
 
 // Product spec §7.1 step 5: plain yes/no or multiple-choice questions, not technical settings.
 // Only the two rule keys named as examples in erp-connector-dev-spec.md §5 are asked here --
@@ -44,6 +45,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   if (!connection || connection.status !== "active") throw redirect("/app/connect");
 
   const erpType = params.erpType!;
+  await requireWizardStep(connectionId, erpType, "edgecases");
   const erpName = SUPPORTED_ERPS.find((e) => e.id === erpType)?.name ?? erpType;
   const saved = await getEdgeCaseRules(connectionId);
   return { connectionId, saved, erpName };

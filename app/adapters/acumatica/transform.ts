@@ -4,7 +4,7 @@
 // in erp-connector-build-plan.md. Known open questions called out inline, same policy as the
 // NetSuite adapter's transform.ts.
 
-import type { CanonicalOrder, CanonicalRefund } from "../../models/canonical";
+import type { CanonicalAddress, CanonicalOrder, CanonicalRefund } from "../../models/canonical";
 import type { FieldMapping } from "../types";
 
 function wrap(value: unknown): { value: unknown } {
@@ -30,6 +30,32 @@ function setWrappedPath(target: Record<string, unknown>, path: string, value: un
   cursor[parts[parts.length - 1]] = wrap(value);
 }
 
+// erp-connector-fixes-spec.md F7: address sub-fields, same reasoning as the NetSuite transform's
+// ADDRESS_SUBFIELDS -- AddressLine1/AddressLine2/City/State/PostalCode/Country are Acumatica's
+// documented Address entity field names.
+const ADDRESS_SUBFIELDS: (keyof CanonicalAddress)[] = [
+  "address1",
+  "address2",
+  "city",
+  "provinceCode",
+  "zip",
+  "countryCode",
+];
+
+function setAddress(
+  payload: Record<string, unknown>,
+  mapping: FieldMapping[],
+  canonicalPrefix: "billingAddress" | "shippingAddress",
+  address: CanonicalAddress,
+): void {
+  for (const canonicalKey of ADDRESS_SUBFIELDS) {
+    const value = address[canonicalKey];
+    if (!value) continue;
+    const erpField = findErpField(mapping, `${canonicalPrefix}.${canonicalKey}`);
+    if (erpField) setWrappedPath(payload, erpField, value);
+  }
+}
+
 export interface AcumaticaSalesOrderPayload {
   OrderType: { value: string };
   Details: Record<string, { value: unknown }>[];
@@ -43,17 +69,40 @@ export function canonicalOrderToSalesOrder(
 ): AcumaticaSalesOrderPayload {
   const payload: Record<string, unknown> = { OrderType: wrap("SO") };
 
+  // erp-connector-fixes-spec.md F7: previously dropped entirely. FreightAmount and CurrencyRate
+  // are Acumatica's documented SalesOrder fields (decent confidence); tax/discount/gift-card land
+  // in Usr-prefixed custom fields (same convention as UsrShopifyOrderId) since Acumatica's native
+  // tax engine is configuration-driven, not a simple settable total -- TODO(D4): verify against a
+  // real instance. Percentage-type discounts are excluded from discountTotal, same as NetSuite's
+  // transform (see CanonicalDiscount -- reconciling those needs the line items they apply to).
+  const shippingTotal = order.shippingLines.reduce((sum, s) => sum + s.amount, 0);
+  const taxTotal = order.taxLines.reduce((sum, t) => sum + t.amount, 0);
+  const discountTotal = order.discounts
+    .filter((d) => d.type !== "percentage")
+    .reduce((sum, d) => sum + d.value, 0);
+  const giftCardTotal = order.giftCards.reduce((sum, g) => sum + g.amountUsed, 0);
+
   const headerFields: Array<[string, unknown]> = [
     ["order.id", order.id],
     ["order.createdAt", order.createdAt.slice(0, 10)],
     ["order.currency", order.currency],
     ["customer.id", customerId],
+    ["order.shippingTotal", shippingTotal],
+    ["order.taxTotal", taxTotal],
+    ["order.discountTotal", discountTotal],
+    ["order.giftCardTotal", giftCardTotal],
   ];
+  if (order.exchangeRateAtTransaction != null) {
+    headerFields.push(["order.exchangeRate", order.exchangeRateAtTransaction]);
+  }
 
   for (const [shopifyField, value] of headerFields) {
     const erpField = findErpField(mapping, shopifyField);
     if (erpField) setWrappedPath(payload, erpField, value);
   }
+
+  setAddress(payload, mapping, "billingAddress", order.billingAddress);
+  setAddress(payload, mapping, "shippingAddress", order.shippingAddress);
 
   // Unlike NetSuite, Acumatica's contract-based REST API references stock items directly by
   // InventoryID (the SKU) -- no separate id-resolution lookup needed. TODO(D4): verify this

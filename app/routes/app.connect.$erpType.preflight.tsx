@@ -7,6 +7,7 @@ import { authenticate } from "../shopify.server";
 import { getConnection, getFieldMappings } from "../models/connections.server";
 import { getDefaultFieldMappings } from "../adapters/registry.server";
 import { runPreflightCheck } from "../sync/preflight.server";
+import { requireWizardStep } from "../models/wizardProgress.server";
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
@@ -16,6 +17,8 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 
   const connection = await getConnection(connectionId);
   if (!connection || connection.status !== "active") throw redirect("/app/connect");
+
+  await requireWizardStep(connectionId, erpType, "preflight");
 
   const saved = await getFieldMappings(connectionId);
   const mapping =

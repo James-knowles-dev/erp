@@ -55,6 +55,38 @@ describe("canonicalOrderToSalesOrder", () => {
   it("throws if a line item's SKU has no resolved Sage Intacct item", () => {
     expect(() => canonicalOrderToSalesOrder(baseOrder, mapping, {}, "C0001")).toThrow(/WIDGET-1/);
   });
+
+  // Regression coverage for erp-connector-fixes-spec.md F7.
+  it("computes shipping/tax/discount/gift-card totals but leaves them unmapped by default", () => {
+    const richOrder: CanonicalOrder = {
+      ...baseOrder,
+      exchangeRateAtTransaction: 1.35,
+      discounts: [
+        { type: "fixed_amount", value: 5, appliesTo: "order" },
+        { type: "percentage", value: 10, appliesTo: "order" },
+      ],
+      taxLines: [{ title: "State Tax", rate: 0.07, amount: 2.8 }],
+      shippingLines: [{ title: "Standard", amount: 6.5 }],
+      giftCards: [{ code: "GC-1", amountUsed: 10 }],
+    };
+
+    const payload = canonicalOrderToSalesOrder(richOrder, mapping, { "WIDGET-1": "WIDGET-1" }, "C0001");
+
+    // No default target exists yet (see mapping.ts) -- nothing lands on the payload until a
+    // merchant/agency retargets the mapping to a field confirmed against their own account.
+    expect(Object.keys(payload)).toEqual(["DOCPARID", "CUSTOMERID", "WHENCREATED", "CURRENCY", "SODOCUMENTENTRIES"]);
+  });
+
+  it("sets a computed total once mapping is retargeted to a real field", () => {
+    const richOrder: CanonicalOrder = { ...baseOrder, shippingLines: [{ title: "Standard", amount: 6.5 }] };
+    const customMapping = mapping.map((m) =>
+      m.shopifyField === "order.shippingTotal" ? { ...m, erpField: "CUSTOM_SHIPPING_TOTAL" } : m,
+    );
+
+    const payload = canonicalOrderToSalesOrder(richOrder, customMapping, { "WIDGET-1": "WIDGET-1" }, "C0001");
+
+    expect(payload.CUSTOM_SHIPPING_TOTAL).toBe(6.5);
+  });
 });
 
 describe("canonicalRefundToSageIntacctOperation", () => {
@@ -83,5 +115,27 @@ describe("canonicalRefundToSageIntacctOperation", () => {
     const op = canonicalRefundToSageIntacctOperation(cancelledRefund, mapping);
 
     expect(op).toEqual({ type: "cancel_order", recordNo: "INV-000555" });
+  });
+
+  // Regression test for erp-connector-fixes-spec.md F6: `refund.lineItems.length` (item count)
+  // was previously used where a summed quantity was needed -- the single-line, quantity-1 fixture
+  // above can't catch that bug because both values happen to be 1 there.
+  it("sums line item quantities rather than counting line items", () => {
+    const multiQuantityRefund: CanonicalRefund = {
+      ...refund,
+      lineItems: [
+        { sku: "WIDGET-1", quantity: 3, amount: 59.97 },
+        { sku: "WIDGET-2", quantity: 2, amount: 15.0 },
+      ],
+    };
+    const op = canonicalRefundToSageIntacctOperation(multiQuantityRefund, mapping);
+
+    expect(op).toEqual({
+      type: "ar_adjustment",
+      payload: {
+        INVOICENO: "INV-000555",
+        ARADJUSTMENTITEMS: { ARADJUSTMENTITEM: [{ AMOUNT: 74.97, QUANTITY: 5 }] },
+      },
+    });
   });
 });

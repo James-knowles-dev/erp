@@ -67,6 +67,59 @@ describe("canonicalOrderToSalesOrder", () => {
     expect(payload.BaseCurrencyID).toEqual({ value: "USD" });
     expect(payload.CurrencyID).toBeUndefined();
   });
+
+  // Regression coverage for erp-connector-fixes-spec.md F7.
+  it("maps shipping/tax/discount/gift-card totals, exchange rate, and both addresses", () => {
+    const richOrder: CanonicalOrder = {
+      ...baseOrder,
+      exchangeRateAtTransaction: 1.35,
+      billingAddress: {
+        address1: "1 Main St",
+        address2: "Suite 2",
+        city: "Springfield",
+        provinceCode: "IL",
+        countryCode: "US",
+        zip: "62704",
+      },
+      shippingAddress: {
+        address1: "2 Oak Ave",
+        city: "Shelbyville",
+        provinceCode: "IL",
+        countryCode: "US",
+        zip: "62565",
+      },
+      discounts: [
+        { type: "fixed_amount", value: 5, appliesTo: "order" },
+        { type: "percentage", value: 10, appliesTo: "order" },
+      ],
+      taxLines: [{ title: "State Tax", rate: 0.07, amount: 2.8 }],
+      shippingLines: [{ title: "Standard", amount: 6.5 }],
+      giftCards: [{ code: "GC-1", amountUsed: 10 }],
+    };
+
+    const payload = canonicalOrderToSalesOrder(richOrder, mapping, "CUST0001");
+
+    expect(payload.FreightAmount).toEqual({ value: 6.5 });
+    expect(payload.UsrShopifyTaxTotal).toEqual({ value: 2.8 });
+    expect(payload.UsrShopifyDiscountTotal).toEqual({ value: 5 });
+    expect(payload.UsrShopifyGiftCardTotal).toEqual({ value: 10 });
+    expect(payload.CurrencyRate).toEqual({ value: 1.35 });
+    expect(payload.BillingAddress).toEqual({
+      AddressLine1: { value: "1 Main St" },
+      AddressLine2: { value: "Suite 2" },
+      City: { value: "Springfield" },
+      State: { value: "IL" },
+      PostalCode: { value: "62704" },
+      Country: { value: "US" },
+    });
+    expect(payload.ShippingAddress).toEqual({
+      AddressLine1: { value: "2 Oak Ave" },
+      City: { value: "Shelbyville" },
+      State: { value: "IL" },
+      PostalCode: { value: "62565" },
+      Country: { value: "US" },
+    });
+  });
 });
 
 describe("canonicalRefundToAcumaticaOperation", () => {

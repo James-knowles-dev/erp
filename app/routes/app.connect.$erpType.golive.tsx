@@ -1,7 +1,7 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { redirect } from "@remix-run/node";
 import { Form, useLoaderData } from "@remix-run/react";
-import { Page, Layout, Card, BlockStack, Text, Button, Badge, InlineStack } from "@shopify/polaris";
+import { Page, Layout, Card, BlockStack, Text, Button, Badge, InlineStack, Banner } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { getConnection, markConnectionLive, startParallelRun } from "../models/connections.server";
@@ -9,6 +9,7 @@ import { requireActiveBillingForGoLive } from "../utils/billing.server";
 import { runBackfill } from "../sync/backfill.server";
 import { runReconciliationForConnection } from "../sync/reconciliation.server";
 import { SUPPORTED_ERPS } from "../adapters/registry.server";
+import { requireWizardStep } from "../models/wizardProgress.server";
 
 type ConnectionStatus = "not_started" | "shadow" | "live";
 
@@ -20,23 +21,34 @@ function connectionStatus(connection: { wentLiveAt: Date | null; shadowModeStart
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   await authenticate.admin(request);
-  const connectionId = new URL(request.url).searchParams.get("connectionId");
+  const searchParams = new URL(request.url).searchParams;
+  const connectionId = searchParams.get("connectionId");
   if (!connectionId) throw redirect("/app/connect");
 
   const connection = await getConnection(connectionId);
   if (!connection || connection.status !== "active") throw redirect("/app/connect");
 
   const erpType = params.erpType!;
+  await requireWizardStep(connectionId, erpType, "golive");
   const erpName = SUPPORTED_ERPS.find((e) => e.id === erpType)?.name ?? erpType;
 
   // No billing check here -- viewing this page, and starting parallel-run mode, must both stay
   // free (product spec §9). Billing is only required in the action, and only for the go_live/
   // cutover intent specifically (see below).
+  const backfillEnqueued = searchParams.get("backfillEnqueued");
   return {
     connectionId,
     status: connectionStatus(connection),
     environment: connection.environment,
     erpName,
+    backfill:
+      backfillEnqueued != null
+        ? {
+            enqueued: Number(backfillEnqueued),
+            totalFound: Number(searchParams.get("backfillTotalFound") ?? backfillEnqueued),
+            truncated: searchParams.get("backfillTruncated") === "1",
+          }
+        : null,
   };
 };
 
@@ -50,6 +62,10 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
 
   const connection = await getConnection(connectionId);
   if (!connection) throw new Response("Connection not found", { status: 404 });
+
+  // Same gate as the loader (erp-connector-fixes-spec.md F9), enforced here too since this is a
+  // separate POST endpoint a direct request could hit without ever going through the loader.
+  await requireWizardStep(connectionId, erpType, "golive");
 
   if (intent === "start_parallel_run") {
     // Milestone 7 (dev spec §14): shadow-syncs without pushing or billing -- see worker.server.ts.
@@ -67,9 +83,13 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   await markConnectionLive(connectionId);
 
   let backfillEnqueued = 0;
+  let backfillTotalFound = 0;
+  let backfillTruncated = false;
   if (connection.backfillWindow && connection.backfillWindow !== "none") {
     const result = await runBackfill(admin, connectionId, connection.backfillWindow);
     backfillEnqueued = result.enqueued;
+    backfillTotalFound = result.totalFound;
+    backfillTruncated = result.truncated;
   }
 
   if (wasShadowing) {
@@ -80,13 +100,17 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     if (live) await runReconciliationForConnection(admin, live);
   }
 
-  return redirect(
-    `/app/connect/${erpType}/golive?connectionId=${connectionId}&backfillEnqueued=${backfillEnqueued}`,
-  );
+  const resultParams = new URLSearchParams({
+    connectionId,
+    backfillEnqueued: String(backfillEnqueued),
+    backfillTotalFound: String(backfillTotalFound),
+    backfillTruncated: backfillTruncated ? "1" : "0",
+  });
+  return redirect(`/app/connect/${erpType}/golive?${resultParams.toString()}`);
 };
 
 export default function ConnectStepGoLive() {
-  const { connectionId, status, environment, erpName } = useLoaderData<typeof loader>();
+  const { connectionId, status, environment, erpName, backfill } = useLoaderData<typeof loader>();
 
   return (
     <Page>
@@ -108,6 +132,15 @@ export default function ConnectStepGoLive() {
                       New orders will sync automatically from here. Check the Activity page for
                       sync status and reconciliation results.
                     </Text>
+                    {backfill && (
+                      <Banner tone={backfill.truncated ? "warning" : "success"}>
+                        <p>
+                          {`Backfill: ${backfill.enqueued} of ${backfill.totalFound} order(s) queued for sync.`}
+                          {backfill.truncated &&
+                            " Reached the safety limit before finding every order in the window -- see the Activity page for details."}
+                        </p>
+                      </Banner>
+                    )}
                   </>
                 )}
 

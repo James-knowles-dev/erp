@@ -54,6 +54,57 @@ describe("canonicalOrderToSage300Order", () => {
   it("throws if a line item's SKU has no resolved Sage 300 item", () => {
     expect(() => canonicalOrderToSage300Order(baseOrder, mapping, {}, "1200")).toThrow(/WIDGET-1/);
   });
+
+  // Regression coverage for erp-connector-fixes-spec.md F7.
+  it("maps ship-to address by default, but leaves billing address and totals unmapped", () => {
+    const richOrder: CanonicalOrder = {
+      ...baseOrder,
+      exchangeRateAtTransaction: 1.35,
+      shippingAddress: {
+        address1: "2 Oak Ave",
+        address2: "Unit 4",
+        city: "Shelbyville",
+        provinceCode: "IL",
+        countryCode: "US",
+        zip: "62565",
+      },
+      discounts: [
+        { type: "fixed_amount", value: 5, appliesTo: "order" },
+        { type: "percentage", value: 10, appliesTo: "order" },
+      ],
+      taxLines: [{ title: "State Tax", rate: 0.07, amount: 2.8 }],
+      shippingLines: [{ title: "Standard", amount: 6.5 }],
+      giftCards: [{ code: "GC-1", amountUsed: 10 }],
+    };
+
+    const payload = canonicalOrderToSage300Order(richOrder, mapping, { "WIDGET-1": "WIDGET-1" }, "1200");
+
+    expect(payload.ShipToAddress1).toBe("2 Oak Ave");
+    expect(payload.ShipToAddress2).toBe("Unit 4");
+    expect(payload.ShipToCity).toBe("Shelbyville");
+    expect(payload.ShipToStateProvince).toBe("IL");
+    expect(payload.ShipToZipPostal).toBe("62565");
+    expect(payload.ShipToCountry).toBe("US");
+
+    // No default target exists yet for these (see mapping.ts).
+    expect(payload.shippingTotal).toBeUndefined();
+    expect(payload.taxTotal).toBeUndefined();
+    expect(payload.discountTotal).toBeUndefined();
+    expect(payload.giftCardTotal).toBeUndefined();
+    expect(payload.exchangeRate).toBeUndefined();
+    expect(payload.BillToAddress1).toBeUndefined();
+  });
+
+  it("sets a computed total once mapping is retargeted to a real field", () => {
+    const richOrder: CanonicalOrder = { ...baseOrder, shippingLines: [{ title: "Standard", amount: 6.5 }] };
+    const customMapping = mapping.map((m) =>
+      m.shopifyField === "order.shippingTotal" ? { ...m, erpField: "FreightAmount" } : m,
+    );
+
+    const payload = canonicalOrderToSage300Order(richOrder, customMapping, { "WIDGET-1": "WIDGET-1" }, "1200");
+
+    expect(payload.FreightAmount).toBe(6.5);
+  });
 });
 
 describe("canonicalRefundToSage300Operation", () => {

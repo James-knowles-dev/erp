@@ -1,4 +1,5 @@
-import type { FieldMapping, FieldMappingTemplate, ValidationIssue } from "../types";
+import type { FieldMapping, FieldMappingTemplate } from "../types";
+import { buildValidateMapping } from "../shared/validateMapping";
 
 // Default field mappings for a NetSuite connection's "order" entity, pre-filled per
 // erp-connector-spec.md §7.1 step 4 ("every common field pre-mapped ... already selected").
@@ -13,43 +14,32 @@ export function getDefaultFieldMappings(): FieldMappingTemplate {
     { shopifyField: "lineItem.sku", erpField: "item", isRequired: true },
     { shopifyField: "lineItem.quantity", erpField: "quantity", isRequired: true },
     { shopifyField: "lineItem.unitPrice", erpField: "rate", isRequired: true },
+    // erp-connector-fixes-spec.md F7 -- see transform.ts's header comment on canonicalOrderToSalesOrder
+    // for why the tax/discount/gift-card targets are custbody custom fields rather than guessed
+    // standard ones. None of these are required: an order with no shipping/tax/discount/gift-card
+    // activity shouldn't fail mapping validation over fields it'll never populate.
+    { shopifyField: "order.shippingTotal", erpField: "shippingcost", isRequired: false },
+    { shopifyField: "order.taxTotal", erpField: "custbody_shopify_tax_total", isRequired: false },
+    { shopifyField: "order.discountTotal", erpField: "custbody_shopify_discount_total", isRequired: false },
+    { shopifyField: "order.giftCardTotal", erpField: "custbody_shopify_giftcard_total", isRequired: false },
+    { shopifyField: "order.exchangeRate", erpField: "exchangerate", isRequired: false },
+    { shopifyField: "billingAddress.address1", erpField: "billingaddress.addr1", isRequired: false },
+    { shopifyField: "billingAddress.address2", erpField: "billingaddress.addr2", isRequired: false },
+    { shopifyField: "billingAddress.city", erpField: "billingaddress.city", isRequired: false },
+    { shopifyField: "billingAddress.provinceCode", erpField: "billingaddress.state", isRequired: false },
+    { shopifyField: "billingAddress.zip", erpField: "billingaddress.zip", isRequired: false },
+    { shopifyField: "billingAddress.countryCode", erpField: "billingaddress.country", isRequired: false },
+    { shopifyField: "shippingAddress.address1", erpField: "shippingaddress.addr1", isRequired: false },
+    { shopifyField: "shippingAddress.address2", erpField: "shippingaddress.addr2", isRequired: false },
+    { shopifyField: "shippingAddress.city", erpField: "shippingaddress.city", isRequired: false },
+    { shopifyField: "shippingAddress.provinceCode", erpField: "shippingaddress.state", isRequired: false },
+    { shopifyField: "shippingAddress.zip", erpField: "shippingaddress.zip", isRequired: false },
+    { shopifyField: "shippingAddress.countryCode", erpField: "shippingaddress.country", isRequired: false },
   ];
 
   return { entityType: "order", mappings };
 }
 
-export function validateMapping(mapping: FieldMapping[]): ValidationIssue[] {
-  const issues: ValidationIssue[] = [];
-  const required = getDefaultFieldMappings().mappings.filter((m) => m.isRequired);
-
-  for (const req of required) {
-    const present = mapping.find((m) => m.shopifyField === req.shopifyField);
-    if (!present) {
-      issues.push({
-        field: req.shopifyField,
-        severity: "error",
-        message: `${req.shopifyField} is required by NetSuite (target: ${req.erpField}) but has no mapping.`,
-      });
-    } else if (!present.erpField) {
-      issues.push({
-        field: req.shopifyField,
-        severity: "error",
-        message: `${req.shopifyField} is mapped but has no NetSuite target field.`,
-      });
-    }
-  }
-
-  const seen = new Set<string>();
-  for (const m of mapping) {
-    if (seen.has(m.erpField)) {
-      issues.push({
-        field: m.shopifyField,
-        severity: "warning",
-        message: `Multiple Shopify fields map to the same NetSuite field "${m.erpField}" -- the last one applied wins.`,
-      });
-    }
-    seen.add(m.erpField);
-  }
-
-  return issues;
-}
+export const validateMapping = buildValidateMapping("NetSuite", () =>
+  getDefaultFieldMappings().mappings.filter((m) => m.isRequired),
+);

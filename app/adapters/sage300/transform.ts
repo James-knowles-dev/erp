@@ -3,13 +3,26 @@
 // PDFs (2026-08-10 research), not verified against a live install -- see decision D4 in
 // erp-connector-build-plan.md.
 
-import type { CanonicalOrder, CanonicalRefund } from "../../models/canonical";
+import type { CanonicalAddress, CanonicalOrder, CanonicalRefund } from "../../models/canonical";
 import type { FieldMapping } from "../types";
 import type { Sage300ItemIdMap } from "./types";
 
 function findErpField(mapping: FieldMapping[], shopifyField: string): string | undefined {
   return mapping.find((m) => m.shopifyField === shopifyField)?.erpField;
 }
+
+// erp-connector-fixes-spec.md F7: address sub-fields. Ship-to has a default target (Sage 300's OE
+// Order Entry screen has a per-order Ship-To address tab, unlike billing which normally just uses
+// the customer record's own address with no per-order override) -- billing stays unmapped by
+// default, see mapping.ts.
+const ADDRESS_SUBFIELDS: (keyof CanonicalAddress)[] = [
+  "address1",
+  "address2",
+  "city",
+  "provinceCode",
+  "zip",
+  "countryCode",
+];
 
 export interface Sage300OrderDetail {
   ItemNumber: string;
@@ -39,6 +52,42 @@ export function canonicalOrderToSage300Order(
 
   const currencyField = findErpField(mapping, "order.currency") ?? "CurrencyCode";
   payload[currencyField] = order.currency;
+
+  // erp-connector-fixes-spec.md F7: previously dropped entirely. No default target for any of
+  // these totals (Sage 300's OE Order computes tax/discount from configured tax authorities and
+  // per-line discount percentages, not a simple settable header total) -- only set if a merchant/
+  // agency retargets the mapping to a field confirmed against their own install. Percentage-type
+  // discounts are excluded from discountTotal, same as the other adapters (see CanonicalDiscount).
+  const shippingTotal = order.shippingLines.reduce((sum, s) => sum + s.amount, 0);
+  const taxTotal = order.taxLines.reduce((sum, t) => sum + t.amount, 0);
+  const discountTotal = order.discounts
+    .filter((d) => d.type !== "percentage")
+    .reduce((sum, d) => sum + d.value, 0);
+  const giftCardTotal = order.giftCards.reduce((sum, g) => sum + g.amountUsed, 0);
+
+  const optionalHeaderFields: Array<[string, unknown]> = [
+    ["order.shippingTotal", shippingTotal],
+    ["order.taxTotal", taxTotal],
+    ["order.discountTotal", discountTotal],
+    ["order.giftCardTotal", giftCardTotal],
+  ];
+  if (order.exchangeRateAtTransaction != null) {
+    optionalHeaderFields.push(["order.exchangeRate", order.exchangeRateAtTransaction]);
+  }
+  for (const [shopifyField, value] of optionalHeaderFields) {
+    const erpField = findErpField(mapping, shopifyField);
+    if (erpField) payload[erpField] = value;
+  }
+
+  for (const prefix of ["billingAddress", "shippingAddress"] as const) {
+    const address = prefix === "billingAddress" ? order.billingAddress : order.shippingAddress;
+    for (const subfield of ADDRESS_SUBFIELDS) {
+      const value = address[subfield];
+      if (!value) continue;
+      const erpField = findErpField(mapping, `${prefix}.${subfield}`);
+      if (erpField) payload[erpField] = value;
+    }
+  }
 
   const skuField = findErpField(mapping, "lineItem.sku") ?? "ItemNumber";
   const qtyField = findErpField(mapping, "lineItem.quantity") ?? "QuantityOrdered";

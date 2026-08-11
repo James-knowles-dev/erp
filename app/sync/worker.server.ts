@@ -19,7 +19,9 @@ import { dispatchEvent } from "./webhookDispatch.server";
 // current volume, revisit if/when throughput actually demands it.
 const CONCURRENCY = 1;
 
-async function processJob(job: Job<{ syncJobId: string }>): Promise<void> {
+// Exported for worker.test.ts -- pure enough (only touches db/logActivity/dispatchEvent, no
+// BullMQ/Redis of its own) to unit test directly without spinning up a real Worker.
+export async function processJob(job: Job<{ syncJobId: string }>): Promise<void> {
   const syncJob = await db.syncJob.findUniqueOrThrow({ where: { id: job.data.syncJobId } });
 
   await db.syncJob.update({
@@ -77,6 +79,43 @@ async function processJob(job: Job<{ syncJobId: string }>): Promise<void> {
     return;
   }
 
+  // Defense-in-depth (erp-connector-fixes-spec.md F4): the DB-level unique constraint on SyncJob
+  // (connectionId, entityType, shopifyReferenceId, contentFingerprint) is the primary guard
+  // against a duplicate ERP push, but it doesn't cover legacy/NULL-fingerprint rows (Postgres
+  // treats NULLs as distinct, so it's not enforced for those) or a resource that ended up with
+  // two independent SyncJob rows some other way. If a different job for the same resource already
+  // pushed successfully, don't push again -- adopt its result instead.
+  //
+  // Residual gap this doesn't close: a process crash between adapter.pushOrder resolving and the
+  // status update below (this same job, not a different one) would still retry the push on the
+  // next attempt, since nothing here would have recorded it yet. Closing that fully needs an
+  // ERP-side idempotency key per adapter, which doesn't exist yet -- out of scope for this pass.
+  if (syncJob.shopifyReferenceId) {
+    const alreadySynced = await db.syncJob.findFirst({
+      where: {
+        id: { not: syncJob.id },
+        connectionId: syncJob.connectionId,
+        entityType: syncJob.entityType,
+        shopifyReferenceId: syncJob.shopifyReferenceId,
+        status: "success",
+        erpDocumentRef: { not: null },
+      },
+    });
+    if (alreadySynced) {
+      await db.syncJob.update({
+        where: { id: syncJob.id },
+        data: { status: "success", erpDocumentRef: alreadySynced.erpDocumentRef, completedAt: new Date() },
+      });
+      await logActivity(
+        connection.id,
+        "order_synced",
+        `Order ${canonicalOrder.id} already synced to ${connection.erpType} as ` +
+          `${alreadySynced.erpDocumentRef} (duplicate sync job skipped).`,
+      );
+      return;
+    }
+  }
+
   const credentials = await loadErpCredentials(connection.id);
   if (!credentials) throw new Error(`No stored ERP credentials for connection ${connection.id}.`);
 
@@ -106,6 +145,36 @@ async function processJob(job: Job<{ syncJobId: string }>): Promise<void> {
   });
 }
 
+// Exported for worker.test.ts, same rationale as processJob above. Wired to the real Worker's
+// "failed" event below exactly as before this was pulled out.
+export async function handleJobFailure(job: Job<{ syncJobId: string }> | undefined, err: Error): Promise<void> {
+  if (!job) return;
+  const attemptsExhausted = job.attemptsMade >= (job.opts.attempts ?? 1);
+  const syncJob = await db.syncJob.update({
+    where: { id: job.data.syncJobId },
+    data: {
+      status: attemptsExhausted ? "dead_letter" : "failed",
+      lastError: err.message,
+    },
+  });
+  await logActivity(
+    syncJob.connectionId,
+    attemptsExhausted ? "sync_dead_letter" : "sync_failed",
+    attemptsExhausted
+      ? `Order sync for ${syncJob.shopifyReferenceId} failed after ${job.attemptsMade} attempts and needs manual review: ${err.message}`
+      : `Order sync for ${syncJob.shopifyReferenceId} failed (attempt ${job.attemptsMade}), will retry: ${err.message}`,
+    attemptsExhausted ? "error" : "warning",
+  );
+  // Fired only once retries are exhausted -- a transient failure that's about to retry isn't
+  // the "sync failed" event product spec §7.7 describes an agency wanting to react to.
+  if (attemptsExhausted) {
+    await dispatchEvent(syncJob.connectionId, "sync_failed", {
+      shopifyOrderId: syncJob.shopifyReferenceId,
+      error: err.message,
+    });
+  }
+}
+
 declare global {
   // eslint-disable-next-line no-var -- module-level singleton guard, see comment below
   var __syncWorker: Worker | undefined;
@@ -119,33 +188,7 @@ if (!global.__syncWorker) {
     concurrency: CONCURRENCY,
   });
 
-  worker.on("failed", async (job, err) => {
-    if (!job) return;
-    const attemptsExhausted = job.attemptsMade >= (job.opts.attempts ?? 1);
-    const syncJob = await db.syncJob.update({
-      where: { id: job.data.syncJobId },
-      data: {
-        status: attemptsExhausted ? "dead_letter" : "failed",
-        lastError: err.message,
-      },
-    });
-    await logActivity(
-      syncJob.connectionId,
-      attemptsExhausted ? "sync_dead_letter" : "sync_failed",
-      attemptsExhausted
-        ? `Order sync for ${syncJob.shopifyReferenceId} failed after ${job.attemptsMade} attempts and needs manual review: ${err.message}`
-        : `Order sync for ${syncJob.shopifyReferenceId} failed (attempt ${job.attemptsMade}), will retry: ${err.message}`,
-      attemptsExhausted ? "error" : "warning",
-    );
-    // Fired only once retries are exhausted -- a transient failure that's about to retry isn't
-    // the "sync failed" event product spec §7.7 describes an agency wanting to react to.
-    if (attemptsExhausted) {
-      await dispatchEvent(syncJob.connectionId, "sync_failed", {
-        shopifyOrderId: syncJob.shopifyReferenceId,
-        error: err.message,
-      });
-    }
-  });
+  worker.on("failed", handleJobFailure);
 
   global.__syncWorker = worker;
 }

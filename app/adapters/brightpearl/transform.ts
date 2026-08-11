@@ -3,13 +3,27 @@
 // sales-credit REST API (api-docs.brightpearl.com, 2026-08-10 research), not verified against a
 // live account -- see decision D4 in erp-connector-build-plan.md.
 
-import type { CanonicalOrder, CanonicalRefund } from "../../models/canonical";
+import type { CanonicalAddress, CanonicalOrder, CanonicalRefund } from "../../models/canonical";
 import type { FieldMapping } from "../types";
 import type { BrightpearlProductIdMap } from "./types";
 
 function findErpField(mapping: FieldMapping[], shopifyField: string): string | undefined {
   return mapping.find((m) => m.shopifyField === shopifyField)?.erpField;
 }
+
+// erp-connector-fixes-spec.md F7: address sub-fields. No default target for either address (see
+// mapping.ts) -- Brightpearl's sales-order rows reference an existing contact's saved address by
+// numeric deliveryAddressId/billingAddressId, not inline address fields, and resolving a Shopify
+// address to one of those ids isn't built (would need its own lookup/create step, same shape as
+// resolveProductIds).
+const ADDRESS_SUBFIELDS: (keyof CanonicalAddress)[] = [
+  "address1",
+  "address2",
+  "city",
+  "provinceCode",
+  "zip",
+  "countryCode",
+];
 
 export interface BrightpearlSalesOrderRow {
   quantity: string; // Brightpearl's documented rows[] shape sends quantity as a string, not a number
@@ -44,6 +58,43 @@ export function canonicalOrderToBrightpearlSalesOrder(
 
   const currencyField = findErpField(mapping, "order.currency") ?? "currency";
   payload[currencyField] = { code: order.currency };
+
+  // erp-connector-fixes-spec.md F7: previously dropped entirely. No default target for any of
+  // these (Brightpearl represents shipping as its own order row against a shipping nominal code,
+  // not a header total, and tax/discount are similarly row- or account-configuration-driven) --
+  // only set if a merchant/agency retargets the mapping to a field confirmed against their own
+  // account. Percentage-type discounts are excluded from discountTotal, same as the other
+  // adapters (see CanonicalDiscount).
+  const shippingTotal = order.shippingLines.reduce((sum, s) => sum + s.amount, 0);
+  const taxTotal = order.taxLines.reduce((sum, t) => sum + t.amount, 0);
+  const discountTotal = order.discounts
+    .filter((d) => d.type !== "percentage")
+    .reduce((sum, d) => sum + d.value, 0);
+  const giftCardTotal = order.giftCards.reduce((sum, g) => sum + g.amountUsed, 0);
+
+  const optionalHeaderFields: Array<[string, unknown]> = [
+    ["order.shippingTotal", shippingTotal],
+    ["order.taxTotal", taxTotal],
+    ["order.discountTotal", discountTotal],
+    ["order.giftCardTotal", giftCardTotal],
+  ];
+  if (order.exchangeRateAtTransaction != null) {
+    optionalHeaderFields.push(["order.exchangeRate", order.exchangeRateAtTransaction]);
+  }
+  for (const [shopifyField, value] of optionalHeaderFields) {
+    const erpField = findErpField(mapping, shopifyField);
+    if (erpField) payload[erpField] = value;
+  }
+
+  for (const prefix of ["billingAddress", "shippingAddress"] as const) {
+    const address = prefix === "billingAddress" ? order.billingAddress : order.shippingAddress;
+    for (const subfield of ADDRESS_SUBFIELDS) {
+      const value = address[subfield];
+      if (!value) continue;
+      const erpField = findErpField(mapping, `${prefix}.${subfield}`);
+      if (erpField) payload[erpField] = value;
+    }
+  }
 
   const skuField = findErpField(mapping, "lineItem.sku") ?? "productId";
   const qtyField = findErpField(mapping, "lineItem.quantity") ?? "quantity";
