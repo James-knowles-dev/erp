@@ -57,12 +57,27 @@ export interface ConnectFormField {
   type?: "password" | "url";
 }
 
+export interface ConnectIntro {
+  name: string;
+  // One line naming who typically has the access this step needs (an Administrator role inside
+  // the ERP, a company's Azure/Microsoft 365 admin, IT/hosting for a self-hosted product, or
+  // "no admin access needed" when that's genuinely true) -- added so a store owner reading this
+  // can tell up front whether they can do this themselves or need to loop someone in, rather than
+  // discovering it three steps into a form they can't finish.
+  requirement: string;
+  // Numbered, click-by-click steps rather than a single paragraph -- written for whoever is
+  // actually doing this (which is often the store owner, not an implementation agency), so each
+  // step names the exact screen/menu to look for rather than assuming familiarity with the ERP's
+  // admin area.
+  instructions: string[];
+}
+
 interface ErpAdapterEntry {
   createAdapter: () => ERPAdapter;
   getDefaultFieldMappings: () => FieldMappingTemplate;
   validateMapping: (mapping: FieldMapping[]) => ValidationIssue[];
   connectFormFields: ConnectFormField[];
-  connectIntro: { name: string; instructions: string };
+  connectIntro: ConnectIntro;
   // Not every ERP authenticates via OAuth2 (see Sage Intacct's session-based XML gateway and
   // Sage 300's Basic Auth) -- the callback route reads this per-ERP instead of assuming oauth2,
   // so each adapter's own authenticate() gets credentials shaped the way it actually expects.
@@ -93,21 +108,37 @@ const ADAPTERS: Record<AvailableErpType, ErpAdapterEntry> = {
         helpText:
           'Found in NetSuite under Setup > Company > Company Information. Sandbox account IDs end in "_SB1".',
       },
-      { name: "clientId", label: "Client ID", helpText: "From your NetSuite Integration record." },
+      {
+        name: "clientId",
+        label: "Client ID",
+        helpText: "Shown on the Integration record's page right after you save it in step 5 below.",
+      },
       {
         name: "clientSecret",
         label: "Client Secret",
         helpText:
-          "Only shown once when the Integration record is created in NetSuite -- if you've lost it, reset it there first.",
+          "Only shown once, on that same page, right after saving -- if you've lost it, edit the Integration " +
+          "record and reset it (this invalidates the old secret).",
         type: "password",
       },
     ],
     connectIntro: {
       name: "NetSuite",
-      instructions:
-        "You'll need an Integration record in your NetSuite account with OAuth 2.0 Authorization Code Grant " +
-        "and REST Web Services enabled. In NetSuite, go to Setup > Integration > Manage Integrations > New, " +
-        "and set the redirect URI to the one shown below.",
+      requirement:
+        "You'll need Administrator access in NetSuite to complete this -- if that's not you, ask whoever " +
+        "manages your NetSuite account to do the steps below (it only takes a few minutes).",
+      instructions: [
+        'Make sure REST Web Services is turned on: Setup > Company > Enable Features > SuiteCloud tab, check ' +
+          '"REST Web Services" if it isn\'t already (this is a one-time account setting; skip if already on).',
+        "Go to Setup > Integration > Manage Integrations > New.",
+        'Give it any name (e.g. "Shopify Connector"). Under Authentication, check "OAuth 2.0 Authorization ' +
+          'Code Grant" -- leave Token-Based Authentication unchecked.',
+        'Under the OAuth 2.0 section, check the "REST Web Services" scope, and paste the redirect URI shown ' +
+          "above into the Redirect URI field.",
+        "Save. NetSuite immediately shows a Client ID and Client Secret on the page -- copy both now, the " +
+          "secret will not be shown again.",
+        'Your Account ID is under Setup > Company > Company Information (a sandbox account\'s ID ends in "_SB1").',
+      ],
     },
     authType: "oauth2",
     buildAuthorizationUrl: (values, redirectUri, state) =>
@@ -132,28 +163,37 @@ const ADAPTERS: Record<AvailableErpType, ErpAdapterEntry> = {
       {
         name: "instanceUrl",
         label: "Acumatica Instance URL",
-        helpText: 'e.g. "https://mycompany.acumatica.com" -- no trailing slash.',
+        helpText: 'The address you use to log into Acumatica in a browser, e.g. "https://mycompany.acumatica.com" -- no trailing slash.',
         type: "url",
       },
       {
         name: "clientId",
         label: "Client ID",
-        helpText: "From your Acumatica instance's Connected Applications screen (SM303010).",
+        helpText: "Shown on the Connected Application's page right after you save it in step 4 below.",
       },
       {
         name: "clientSecret",
         label: "Client Secret",
         helpText:
-          "Only shown once when the Connected Application is created -- if you've lost it, reset it there first.",
+          "Only shown once, on that same page, right after saving -- if you've lost it, edit the Connected " +
+          "Application and reset it (this invalidates the old secret).",
         type: "password",
       },
     ],
     connectIntro: {
       name: "Acumatica",
-      instructions:
-        "You'll need a Connected Application in your Acumatica instance (Setup > Integration > Connected " +
-        "Applications, screen SM303010) with the authorization code grant enabled, and the \"api\" and " +
-        '"offline_access" scopes. Set the redirect URI to the one shown below.',
+      requirement:
+        "You'll need admin access to your Acumatica instance to complete this -- if that's not you, ask " +
+        "whoever manages your Acumatica instance to do the steps below.",
+      instructions: [
+        "Log into Acumatica, then go to Configuration > Integration > Connected Applications (screen ID " +
+          'SM303010) and click "Add New Record" (the + icon).',
+        'Give it any name, set the type to OAuth 2.0, and enable the "Authorization Code" grant.',
+        'Under Scopes, check "api" and "offline_access".',
+        "Paste the redirect URI shown above into the application's Redirect URI field, then save.",
+        "Acumatica immediately shows a Client ID and Client Secret on the page -- copy both now, the secret " +
+          "will not be shown again.",
+      ],
     },
     authType: "oauth2",
     buildAuthorizationUrl: (values, redirectUri, state) =>
@@ -178,33 +218,61 @@ const ADAPTERS: Record<AvailableErpType, ErpAdapterEntry> = {
       {
         name: "tenantId",
         label: "Azure AD Tenant ID",
-        helpText: 'From Azure Active Directory > Overview, or your tenant domain (e.g. "contoso.onmicrosoft.com").',
+        helpText:
+          'Look at your browser\'s address bar while inside Business Central: it\'s the value right after ' +
+          '"dynamics.com/" -- either a GUID or something like "yourcompany.onmicrosoft.com", either works. ' +
+          'Also shown as "Directory (tenant) ID" on your App Registration\'s Overview page in step 3 below.',
       },
       {
         name: "environment",
         label: "Environment name",
-        helpText: 'e.g. "Production" or "Sandbox" -- shown in the Business Central admin center.',
+        helpText:
+          'Also in that same browser address bar, right after the tenant ID -- typically "Production", ' +
+          '"Sandbox", or a custom name your admin chose.',
       },
       {
         name: "companyId",
         label: "Company ID",
-        helpText: "The GUID for the company within that environment -- found via the companies API or admin center.",
+        helpText:
+          "Not the company name you see on screen -- an internal ID. See step 6 below for how to look it up.",
       },
-      { name: "clientId", label: "Client ID", helpText: "From your Azure AD App Registration." },
+      {
+        name: "clientId",
+        label: "Client ID",
+        helpText: 'Labeled "Application (client) ID" on your App Registration\'s Overview page, step 3 below.',
+      },
       {
         name: "clientSecret",
         label: "Client Secret",
         helpText:
-          "Only shown once when the App Registration's secret is created -- if you've lost it, reset it there first.",
+          "Only shown once, right after you create it in step 4 below -- if you've lost it, add a new client " +
+          "secret on the App Registration (the old one still works until it expires or you delete it).",
         type: "password",
       },
     ],
     connectIntro: {
       name: "Business Central",
-      instructions:
-        "You'll need an App Registration in your Azure Active Directory with the " +
-        "https://api.businesscentral.dynamics.com/.default API permission and admin consent granted. " +
-        "Set the redirect URI to the one shown below.",
+      requirement:
+        "You'll need to be (or get help from) whoever manages your Microsoft 365 subscription -- Global " +
+        "Administrator or Application Administrator in Azure Active Directory. If you signed yourself up for " +
+        "a Business Central trial, that's you.",
+      instructions: [
+        'Go to portal.azure.com and sign in with your Business Central admin account, then open "App ' +
+          'registrations" (search for it in the top search bar) > New registration.',
+        'Name it anything (e.g. "Shopify Connector"), leave the default account-type option, and under ' +
+          '"Redirect URI" choose type Web and paste in the redirect URI shown above.',
+        'Click Register. On the Overview page that opens, note the "Application (client) ID" and "Directory ' +
+          '(tenant) ID" -- you\'ll need both.',
+        'Left sidebar > "Certificates & secrets" > New client secret > give it any description/expiry > Add. ' +
+          "Copy the Value column immediately -- it will not be shown again once you leave the page.",
+        'Left sidebar > "API permissions" > Add a permission > APIs my organization uses > search "Dynamics ' +
+          '365 Business Central" > Delegated permissions > check "user_impersonation" > Add, then click ' +
+          '"Grant admin consent" on that same page.',
+        "For the Company ID: while signed into Business Central in the same browser, visit " +
+          "https://api.businesscentral.dynamics.com/v2.0/<tenant>/<environment>/api/v2.0/companies " +
+          "(swap in your Tenant ID and Environment name from above). It returns a short list -- copy the " +
+          '"id" value next to your company\'s name.',
+      ],
     },
     authType: "oauth2",
     buildAuthorizationUrl: (values, redirectUri, state) =>
@@ -235,14 +303,14 @@ const ADAPTERS: Record<AvailableErpType, ErpAdapterEntry> = {
       {
         name: "companyId",
         label: "Company ID",
-        helpText: "Your Sage Intacct Company ID (Company > Subscriptions, or top-right of the Intacct UI).",
+        helpText: 'Shown top-right of the Sage Intacct screen once logged in, or under Company > Subscriptions.',
       },
       {
         name: "userId",
         label: "User ID",
         helpText:
-          "A dedicated integration user is recommended over a personal login. That user must have Web " +
-          'Services authorization enabled (Company > Web Services Authorizations) for our Sender ID.',
+          "A dedicated integration user is recommended over a personal login, so this connection doesn't " +
+          "break if that person leaves. Either way, this user needs Web Services access -- see step 2 below.",
       },
       {
         name: "userPassword",
@@ -253,15 +321,23 @@ const ADAPTERS: Record<AvailableErpType, ErpAdapterEntry> = {
     ],
     connectIntro: {
       name: "Sage Intacct",
+      requirement:
+        "You'll need a Sage Intacct Administrator to complete step 1 below (authorizing our access) -- if " +
+        "that's not you, send them this page's link and ask them to do it first, then come back.",
       // Genuinely different from every other ERP here: there's no redirect to a Sage login/
       // consent screen -- clicking Connect submits these credentials directly to us, and we
       // establish an API session with them immediately. Said plainly so the copy doesn't imply an
       // OAuth-style screen the merchant will never see.
-      instructions:
-        "Sage Intacct doesn't use an OAuth redirect -- clicking Connect verifies these credentials directly. " +
-        "Your Company ID needs to have authorized our Sender ID for Web Services access first " +
-        "(Company > Setup > Web Services Authorizations in Sage Intacct); ask your Intacct administrator if " +
-        "you're not sure this has been done.",
+      instructions: [
+        'An Administrator needs to authorize Web Services access first: in Sage Intacct, go to Company > ' +
+          'Setup > Web Services Authorizations, and add an authorization for our Sender ID (shown to you or ' +
+          "your admin when you request access -- if you don't have it yet, that's the one thing to ask us for).",
+        "Create (or reuse) a user for this connection -- Company > Company Setup > Users -- and make sure " +
+          '"Web Services User" is checked on that user\'s record, since a user without it can\'t authenticate ' +
+          "here even with the right password.",
+        "There's no separate login screen after this: entering the right Company ID, User ID, and password " +
+          'below and clicking Connect verifies them immediately against Sage Intacct.',
+      ],
     },
     authType: "session",
     buildAuthorizationUrl: (_values, redirectUri, state) =>
@@ -282,25 +358,39 @@ const ADAPTERS: Record<AvailableErpType, ErpAdapterEntry> = {
         name: "serverUrl",
         label: "Sage 300 Web API URL",
         helpText:
-          'e.g. "https://erp.mycompany.com/Sage300WebApi" -- Sage 300 is typically self-hosted, so this ' +
-          "needs to already be reachable from the internet (via your IT team or a reverse proxy). No trailing slash.",
+          'e.g. "https://erp.mycompany.com/Sage300WebApi" -- your IT team or Sage partner sets this up ' +
+          "(see step 2 below); no trailing slash.",
         type: "url",
       },
       {
         name: "company",
         label: "Company (Org) ID",
-        helpText: 'The Sage 300 company database ID, e.g. "SAMLTD".',
+        helpText: 'The short Sage 300 company database code, e.g. "SAMLTD" -- ask whoever manages Sage 300 if unsure.',
       },
-      { name: "username", label: "Username", helpText: "A Sage 300 user with Web API access." },
+      {
+        name: "username",
+        label: "Username",
+        helpText: "A Sage 300 user with Web API access (see step 3 below) -- not necessarily your own login.",
+      },
       { name: "password", label: "Password", helpText: "The password for the username above.", type: "password" },
     ],
     connectIntro: {
       name: "Sage 300",
-      instructions:
-        "Sage 300 doesn't use an OAuth redirect either -- clicking Connect verifies these credentials " +
-        "directly against your Web API URL. Sage 300 is typically self-hosted per company, so this endpoint " +
-        "needs to already be exposed to the internet before you can connect (ask your IT team or Sage partner " +
-        "if you're not sure).",
+      requirement:
+        "This one usually isn't something a store owner can finish alone: Sage 300 normally runs on your " +
+        "own server, so steps 1-2 below typically need your IT team, hosting provider, or Sage partner. Once " +
+        "they've done those, entering the details below is easy.",
+      instructions: [
+        "Confirm Sage 300 Web Screens (the Web API) is installed and turned on -- this is a checkbox chosen " +
+          "when Sage 300 was set up; ask whoever manages your Sage 300 install to confirm or enable it.",
+        "That Web API needs to be reachable from the public internet, not just your office network -- your " +
+          "IT team or hosting provider will need to expose it (e.g. via a reverse proxy) and give you the " +
+          "public URL to enter below.",
+        "Ask your Sage 300 administrator for a username/password with Web API access -- this can be a " +
+          "dedicated account for this connection rather than a personal login.",
+        "There's no separate login screen after this: entering the URL, Company ID, username, and password " +
+          "below and clicking Connect verifies them immediately.",
+      ],
     },
     authType: "api_key",
     buildAuthorizationUrl: (_values, redirectUri, state) =>
@@ -320,13 +410,19 @@ const ADAPTERS: Record<AvailableErpType, ErpAdapterEntry> = {
       {
         name: "accountCode",
         label: "Brightpearl Account Code",
-        helpText: 'The short code in your Brightpearl URL, e.g. "mystore" from mystore.brightpearlapp.com.',
+        helpText: 'The short code in your Brightpearl web address, e.g. "mystore" from mystore.brightpearlapp.com.',
       },
     ],
     connectIntro: {
       name: "Brightpearl",
-      instructions:
-        "Enter your Brightpearl account code below, then you'll be taken to Brightpearl to approve access.",
+      requirement: "This one's simple -- no admin or IT help needed beyond your own normal Brightpearl login.",
+      instructions: [
+        "Find your account code in your Brightpearl web address bar -- it's the part before " +
+          '".brightpearlapp.com", e.g. "mystore" from mystore.brightpearlapp.com.',
+        "Enter it below and click Connect.",
+        "You'll be taken to Brightpearl to log in (if not already) and approve access for this app -- any " +
+          "normal Brightpearl user can do this step.",
+      ],
     },
     authType: "oauth2",
     buildAuthorizationUrl: (values, redirectUri, state) =>
@@ -359,7 +455,7 @@ export function getConnectFormFields(erpType: string): ConnectFormField[] {
   return getEntry(erpType).connectFormFields;
 }
 
-export function getConnectIntro(erpType: string): { name: string; instructions: string } {
+export function getConnectIntro(erpType: string): ConnectIntro {
   return getEntry(erpType).connectIntro;
 }
 

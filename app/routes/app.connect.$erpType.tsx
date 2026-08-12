@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { redirect } from "@remix-run/node";
 import { Form, useLoaderData } from "@remix-run/react";
-import { Page, Layout, Card, BlockStack, Text, Button, TextField, Banner, Box } from "@shopify/polaris";
+import { Page, Layout, Card, BlockStack, Text, Button, TextField, Banner, Box, List } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { getConnection, storePartialErpConfig } from "../models/connections.server";
@@ -85,14 +85,26 @@ export default function ConnectStepErp() {
                 <Text as="h2" variant="headingMd">
                   {`Step 2 of 4: Connect to ${intro.name}`}
                 </Text>
-                <Text as="p" variant="bodyMd">
-                  {intro.instructions}
-                </Text>
-                <Box padding="200" background="bg-surface-active" borderRadius="200">
-                  <Text as="span" variant="bodyMd">
-                    <code>{callbackUrl}</code>
+                <Banner tone="info">
+                  <Text as="p" variant="bodyMd">
+                    {intro.requirement}
                   </Text>
-                </Box>
+                </Banner>
+                <BlockStack gap="100">
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    Redirect URI -- you'll need to paste this into a step below:
+                  </Text>
+                  <Box padding="200" background="bg-surface-active" borderRadius="200">
+                    <Text as="span" variant="bodyMd">
+                      <code>{callbackUrl}</code>
+                    </Text>
+                  </Box>
+                </BlockStack>
+                <List type="number">
+                  {intro.instructions.map((step, i) => (
+                    <List.Item key={i}>{step}</List.Item>
+                  ))}
+                </List>
                 {error && (
                   <Banner tone="critical" title="Connection failed">
                     <p>{error}</p>
