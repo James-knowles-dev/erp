@@ -30,6 +30,16 @@ export async function getConnection(id: string) {
   return db.erpConnection.findUnique({ where: { id } });
 }
 
+// For background-job contexts (the sync worker, billing usage recording) that need to call
+// unauthenticated.admin(shop) but only ever had a connectionId to start from.
+export async function getConnectionShopDomain(connectionId: string): Promise<string | null> {
+  const connection = await db.erpConnection.findUnique({
+    where: { id: connectionId },
+    select: { shop: { select: { shopifyDomain: true } } },
+  });
+  return connection?.shop.shopifyDomain ?? null;
+}
+
 export async function getActiveConnectionForShop(shopId: string) {
   // v1 assumes one active connection per shop (dev spec §5) -- most recent non-disabled wins.
   return db.erpConnection.findFirst({

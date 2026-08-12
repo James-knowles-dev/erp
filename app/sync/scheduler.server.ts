@@ -34,11 +34,19 @@ declare global {
 
 // Same dev-mode HMR guard as worker.server.ts. upsertJobScheduler is itself idempotent (keyed by
 // schedulerId), so re-registering on every server start doesn't create duplicate schedules.
+//
+// Wrapped in try/catch like worker.server.ts's Worker below: getRedisConnection() throws
+// synchronously if REDIS_URL is unset, and this runs as a module-load side effect from
+// entry.server.tsx -- unguarded, that crashes the entire web process, not just reconciliation.
 if (!global.__reconciliationWorker) {
-  const queue = new Queue(RECONCILIATION_QUEUE_NAME, { connection: getRedisConnection() });
-  void queue.upsertJobScheduler("reconciliation-tick", { every: INTERVAL_MS }, { name: "tick" });
+  try {
+    const queue = new Queue(RECONCILIATION_QUEUE_NAME, { connection: getRedisConnection() });
+    void queue.upsertJobScheduler("reconciliation-tick", { every: INTERVAL_MS }, { name: "tick" });
 
-  global.__reconciliationWorker = new Worker(RECONCILIATION_QUEUE_NAME, processReconciliationTick, {
-    connection: getRedisConnection(),
-  });
+    global.__reconciliationWorker = new Worker(RECONCILIATION_QUEUE_NAME, processReconciliationTick, {
+      connection: getRedisConnection(),
+    });
+  } catch (err) {
+    console.error("Reconciliation scheduler failed to start (REDIS_URL missing or invalid):", err);
+  }
 }

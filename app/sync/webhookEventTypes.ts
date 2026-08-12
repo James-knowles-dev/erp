@@ -5,5 +5,8 @@
 // to build.
 
 // The three events named in product spec §7.7: "order received, inventory updated, sync failed."
-export const EVENT_TYPES = ["order_received", "order_synced", "sync_failed"] as const;
+// reconciliation_alert was added post-Milestone-9: the >2% discrepancy threshold in
+// reconciliation.server.ts previously only wrote an activity_log row -- nothing external ever
+// fired, so an agency with no one watching the in-app activity log had no way to learn about it.
+export const EVENT_TYPES = ["order_received", "order_synced", "sync_failed", "reconciliation_alert"] as const;
 export type WebhookEventType = (typeof EVENT_TYPES)[number];

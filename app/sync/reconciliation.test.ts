@@ -3,11 +3,13 @@ import type { AdminApiContext } from "@shopify/shopify-app-remix/server";
 import type { ErpConnection } from "@prisma/client";
 import { runReconciliationForConnection } from "./reconciliation.server";
 import { logActivity } from "./activityLog.server";
+import { dispatchEvent } from "./webhookDispatch.server";
 import { loadErpCredentials } from "../models/connections.server";
 import { createAdapter } from "../adapters/registry.server";
 import db from "../db.server";
 
 vi.mock("./activityLog.server", () => ({ logActivity: vi.fn() }));
+vi.mock("./webhookDispatch.server", () => ({ dispatchEvent: vi.fn() }));
 vi.mock("../models/connections.server", () => ({ loadErpCredentials: vi.fn(), getAuthType: vi.fn() }));
 vi.mock("../adapters/registry.server", () => ({ createAdapter: vi.fn(), getAuthType: vi.fn() }));
 vi.mock("../db.server", () => ({
@@ -116,6 +118,13 @@ describe("runReconciliationForConnection", () => {
       "reconciliation_alert",
       expect.stringContaining("above the 2% threshold"),
       "error",
+    );
+    // Previously this alert only ever wrote the activity_log row above; it now also reaches any
+    // registered webhook/Slack/email subscription for the connection.
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      "conn-1",
+      "reconciliation_alert",
+      expect.objectContaining({ discrepancies: 5, checked: 5 }),
     );
   });
 });

@@ -179,7 +179,10 @@ export default function Settings() {
                 </Text>
                 <Text as="p" variant="bodyMd">
                   Available event types: {EVENT_TYPES.join(", ")}. Register via{" "}
-                  <code>POST {data.apiBaseUrl}/api/webhooks</code>.
+                  <code>POST {data.apiBaseUrl}/api/webhooks</code> with an optional{" "}
+                  <code>channelKind</code> of <code>generic</code> (default, signed JSON POST),{" "}
+                  <code>slack</code> (Slack Incoming Webhook URL), or <code>email</code> (plain
+                  email address instead of a URL).
                 </Text>
                 {data.subscriptions.length === 0 ? (
                   <Text as="p" variant="bodyMd" tone="subdued">
@@ -189,7 +192,7 @@ export default function Settings() {
                   <List type="bullet">
                     {data.subscriptions.map((s) => (
                       <List.Item key={s.id}>
-                        {s.url} ({s.eventTypes.join(", ")})
+                        [{s.channelKind}] {s.url} ({s.eventTypes.join(", ")})
                       </List.Item>
                     ))}
                   </List>

@@ -1,12 +1,14 @@
 import { Worker, type Job } from "bullmq";
 import db from "../db.server";
+import { unauthenticated } from "../shopify.server";
 import { getRedisConnection } from "./redis.server";
 import { SYNC_QUEUE_NAME } from "./queue.server";
-import { getConnection, getFieldMappings, loadErpCredentials } from "../models/connections.server";
+import { getConnection, getConnectionShopDomain, getFieldMappings, loadErpCredentials } from "../models/connections.server";
 import { createAdapter, getAuthType, getDefaultFieldMappings } from "../adapters/registry.server";
 import { shopifyOrderToCanonical, type ShopifyOrderPayload } from "./shopifyToCanonical";
 import { logActivity } from "./activityLog.server";
 import { dispatchEvent } from "./webhookDispatch.server";
+import { recordOrderSyncUsage } from "../utils/billing.server";
 
 // Runs in-process alongside the web app for now (per README.md's Build Plan, Milestone 3's
 // worker-deploy decision) rather than as the separate Railway service the dev spec's architecture
@@ -23,6 +25,40 @@ const CONCURRENCY = 1;
 // BullMQ/Redis of its own) to unit test directly without spinning up a real Worker.
 export async function processJob(job: Job<{ syncJobId: string }>): Promise<void> {
   const syncJob = await db.syncJob.findUniqueOrThrow({ where: { id: job.data.syncJobId } });
+
+  // A job already in "processing" here (rather than "queued" on the first attempt, or "failed" on
+  // a normal retry after handleJobFailure ran) means a previous attempt got far enough to mark
+  // itself in-flight but the process died before recording success or failure -- e.g. a hard
+  // restart or OOM-kill, not a thrown error (handleJobFailure always sets "failed"/"dead_letter"
+  // before this could happen). For a live job that's ambiguous: adapter.pushOrder may have already
+  // reached the ERP. There's no adapter-side idempotency key yet (see the pushOrder call below) to
+  // safely auto-retry without risking a duplicate order, so stop and surface it for manual
+  // verification instead of silently pushing again. Shadow jobs never touch the ERP, so this
+  // ambiguity doesn't apply to them.
+  if (syncJob.status === "processing" && syncJob.mode === "live") {
+    await db.syncJob.update({
+      where: { id: syncJob.id },
+      data: {
+        status: "dead_letter",
+        lastError:
+          "Resumed mid-flight after an apparent crash (status was already 'processing'); needs manual " +
+          "verification against the ERP before retrying, since no adapter-side idempotency key exists " +
+          "to safely auto-retry a push that may have already succeeded.",
+      },
+    });
+    await logActivity(
+      syncJob.connectionId,
+      "sync_needs_manual_review",
+      `Order sync for ${syncJob.shopifyReferenceId} was interrupted mid-push and needs manual review -- ` +
+        `it may have already reached the ERP.`,
+      "error",
+    );
+    await dispatchEvent(syncJob.connectionId, "sync_failed", {
+      shopifyOrderId: syncJob.shopifyReferenceId,
+      error: "Interrupted mid-push; needs manual review.",
+    });
+    return;
+  }
 
   await db.syncJob.update({
     where: { id: syncJob.id },
@@ -125,14 +161,19 @@ export async function processJob(job: Job<{ syncJobId: string }>): Promise<void>
 
   const documentRef = await adapter.pushOrder(canonicalOrder, mapping);
 
-  await db.syncJob.update({
-    where: { id: syncJob.id },
-    data: { status: "success", erpDocumentRef: documentRef.documentId, completedAt: new Date() },
-  });
-  await db.erpConnection.update({
-    where: { id: connection.id },
-    data: { lastSuccessfulSyncAt: new Date() },
-  });
+  // Both rows describe the same outcome (this job succeeded, this connection is healthy) --
+  // committed together so a crash between them can't leave the sync marked successful while the
+  // connection's lastSuccessfulSyncAt still looks stale (or vice versa).
+  await db.$transaction([
+    db.syncJob.update({
+      where: { id: syncJob.id },
+      data: { status: "success", erpDocumentRef: documentRef.documentId, completedAt: new Date() },
+    }),
+    db.erpConnection.update({
+      where: { id: connection.id },
+      data: { lastSuccessfulSyncAt: new Date() },
+    }),
+  ]);
   await logActivity(
     connection.id,
     "order_synced",
@@ -143,6 +184,25 @@ export async function processJob(job: Job<{ syncJobId: string }>): Promise<void>
     erpDocumentType: documentRef.documentType,
     erpDocumentId: documentRef.documentId,
   });
+  // Billing usage recording is best-effort: a failure here shouldn't undo or fail an otherwise-
+  // successful sync. recordOrderSyncUsage itself no-ops until ORDER_SYNC_USAGE_PRICE_USD is set
+  // (decision D1 is still unresolved -- see billing.server.ts), so this is a no-op in practice
+  // until an operator turns real pricing on.
+  try {
+    const shopDomain = await getConnectionShopDomain(connection.id);
+    if (shopDomain) {
+      const { admin } = await unauthenticated.admin(shopDomain);
+      await recordOrderSyncUsage(admin, syncJob.id, canonicalOrder.id);
+    }
+  } catch (err) {
+    await logActivity(
+      connection.id,
+      "billing_usage_record_failed",
+      `Failed to record billing usage for order ${canonicalOrder.id}: ` +
+        `${err instanceof Error ? err.message : "unknown error"}`,
+      "warning",
+    );
+  }
 }
 
 // Exported for worker.test.ts, same rationale as processJob above. Wired to the real Worker's
@@ -182,13 +242,27 @@ declare global {
 
 // Guards against creating a second Worker on Vite's dev-mode module re-evaluation (HMR) -- in
 // production this file is only ever imported once, at process start, via entry.server.tsx.
+// Wrapped in try/catch: getRedisConnection() throws synchronously if REDIS_URL is unset, and this
+// block runs as a module-load side effect from entry.server.tsx. Previously that exception
+// propagated out of module evaluation and crashed the entire web process -- not just sync, but
+// OAuth install, GDPR webhooks, every route -- since Node can't finish loading the module graph.
+// Catching it here means a missing/invalid REDIS_URL only disables sync (orders queue up and never
+// process until it's fixed and the process restarts), while the rest of the app keeps serving.
 if (!global.__syncWorker) {
-  const worker = new Worker(SYNC_QUEUE_NAME, processJob, {
-    connection: getRedisConnection(),
-    concurrency: CONCURRENCY,
-  });
+  try {
+    const worker = new Worker(SYNC_QUEUE_NAME, processJob, {
+      connection: getRedisConnection(),
+      concurrency: CONCURRENCY,
+    });
 
-  worker.on("failed", handleJobFailure);
+    worker.on("failed", handleJobFailure);
 
-  global.__syncWorker = worker;
+    global.__syncWorker = worker;
+  } catch (err) {
+    console.error(
+      "Sync worker failed to start (REDIS_URL missing or invalid) -- the web app will still serve " +
+        "requests, but orders will queue and never sync until this is fixed and the process restarts.",
+      err,
+    );
+  }
 }

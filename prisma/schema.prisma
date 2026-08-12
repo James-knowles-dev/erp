@@ -218,6 +218,14 @@ model WebhookSubscription {
   eventTypes     String        @map("event_types")
   secretEncrypted String       @map("secret_encrypted") // HMAC-signs outgoing deliveries
   createdAt      DateTime      @default(now()) @map("created_at")
+  // Added post-Milestone-9: 'generic' (default, back-compat) delivers the signed JSON envelope to
+  // `url` as before. 'slack' delivers a plain {text} payload (no signature -- Slack's own incoming
+  // webhook contract) to `url`, which for this kind holds a Slack Incoming Webhook URL. 'email'
+  // sends via SMTP instead of an outbound fetch -- `url` holds a destination email address for this
+  // kind, not an HTTP endpoint. Reusing the `url` column per-kind rather than adding a second
+  // destination column, matching this schema's existing preference for simple reuse over new
+  // columns (see eventTypes' comma-separated string above).
+  channelKind    String        @default("generic") @map("channel_kind")
 
   @@index([connectionId])
   @@map("webhook_subscriptions")

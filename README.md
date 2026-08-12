@@ -52,6 +52,15 @@ four separate files; consolidated here on 2026-08-11 so there's one place to loo
   key rotation, real GDPR data-request/redact handling (previously stubs), DB-level sync dedup
   proven under real concurrency, full pagination on the reconciliation job, and expanded test
   coverage (route-level auth tests for the API-key, agency-session, and internal-dashboard guards).
+- 2026-08-12 hardening pass, from an independent code review of the areas above: Slack/email
+  alert channels for `sync_failed`/`reconciliation_alert` (previously only reached agencies via a
+  generic signed-JSON webhook or the in-app activity log — see `channelKind` on
+  `WebhookSubscription`); billing usage recording wired into the worker (see the Pricing (D1) note
+  below); a missing/invalid `REDIS_URL` no longer crashes the whole web process at boot, only the
+  sync/reconciliation/webhook-delivery workers; and a job resumed mid-flight after an apparent
+  process crash (status still `processing` on re-entry) is now dead-lettered for manual review
+  instead of silently retried, since no adapter-side idempotency key exists yet to rule out a
+  duplicate ERP push.
 
 `npm run lint`, `npm run typecheck`, `npm run test`, and `npm run build` all pass locally as of
 this commit.
@@ -67,10 +76,16 @@ this commit.
 - **The sync worker runs in-process**, not as the separate Railway service the dev spec's
   architecture calls for, and processes jobs at global concurrency 1 (simplest correct way to keep
   same-order jobs in sequence without BullMQ Pro's job-groups feature) — a deliberate scope
-  decision for now (see the Build Plan's Milestone 3 notes), not a rewrite to change later.
+  decision for now (see the Build Plan's Milestone 3 notes), not a rewrite to change later. As of
+  the 2026-08-12 pass below, a missing/invalid `REDIS_URL` no longer crashes the whole web process
+  at boot — it only disables sync/reconciliation/webhook-delivery, logging clearly instead.
 - **Pricing (D1) is still a placeholder.** Billing defaults to test mode
   (`SHOPIFY_BILLING_TEST_MODE`) so step 8 won't attempt a real charge until real tiers/prices are
-  decided; `recordOrderSyncUsage` submits $0 usage records and isn't wired into the worker yet.
+  decided. `recordOrderSyncUsage` is now wired into the worker and called after every successful
+  push (`ORDER_SYNC_USAGE_PRICE_USD` env var, defaulting unset/0 so it stays a no-op until an
+  operator sets a real price) — the plumbing is real, but per Milestone 9's own caveat pattern for
+  the ERP adapters, it hasn't been exercised against a live store with an active usage subscription
+  and should be smoke-tested before being trusted in production.
 - The field-mapping UI is a plain text field per row, not an ERP-schema-aware dropdown.
 - Reconciliation now pages through its full 7-day window rather than stopping at 250 orders (fixed
   2026-08-11), but that window is still fixed at 7 days; older discrepancies need a separate,

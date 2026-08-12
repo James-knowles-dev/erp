@@ -16,6 +16,7 @@ import type { AdminApiContext } from "@shopify/shopify-app-remix/server";
 import type { ErpConnection } from "@prisma/client";
 import db from "../db.server";
 import { logActivity } from "./activityLog.server";
+import { dispatchEvent } from "./webhookDispatch.server";
 import { loadErpCredentials } from "../models/connections.server";
 import { createAdapter, getAuthType } from "../adapters/registry.server";
 
@@ -173,12 +174,13 @@ export async function runReconciliationForConnection(
   }
 
   if (checked > 0 && discrepancies / checked > DISCREPANCY_ALERT_THRESHOLD) {
-    await logActivity(
-      connection.id,
-      "reconciliation_alert",
-      `${discrepancies} of ${checked} recent orders (${Math.round((discrepancies / checked) * 100)}%) have reconciliation discrepancies -- above the 2% threshold.`,
-      "error",
-    );
+    const message = `${discrepancies} of ${checked} recent orders (${Math.round((discrepancies / checked) * 100)}%) have reconciliation discrepancies -- above the 2% threshold.`;
+    await logActivity(connection.id, "reconciliation_alert", message, "error");
+    // Previously this only wrote the activity_log row above -- nothing external ever fired, so an
+    // agency with no one actively watching the in-app activity log had no way to learn about it.
+    // Now reaches any registered webhook/Slack/email subscription for this event (see
+    // webhookDispatch.server.ts).
+    await dispatchEvent(connection.id, "reconciliation_alert", { discrepancies, checked, message });
   }
 }
 

@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Job } from "bullmq";
 import db from "../db.server";
-import { getConnection, getFieldMappings, loadErpCredentials } from "../models/connections.server";
+import { getConnection, getConnectionShopDomain, getFieldMappings, loadErpCredentials } from "../models/connections.server";
 import { createAdapter, getAuthType, getDefaultFieldMappings } from "../adapters/registry.server";
 import { logActivity } from "./activityLog.server";
 import { dispatchEvent } from "./webhookDispatch.server";
+import { recordOrderSyncUsage } from "../utils/billing.server";
+import { unauthenticated } from "../shopify.server";
 import { handleJobFailure, processJob } from "./worker.server";
 
 // worker.server.ts creates a real BullMQ Worker (and thus a Redis connection) as an import-time
@@ -16,15 +18,21 @@ vi.mock("bullmq", () => ({
   },
 }));
 vi.mock("./redis.server", () => ({ getRedisConnection: vi.fn() }));
+// worker.server.ts also imports shopify.server.ts (for unauthenticated.admin, used by the billing
+// usage call) -- that module wires up a real PrismaSessionStorage against the DB at import time,
+// which fails outside a real Postgres. Mocked here so the module graph loads without one.
+vi.mock("../shopify.server", () => ({ unauthenticated: { admin: vi.fn() } }));
 
 vi.mock("../db.server", () => ({
   default: {
     syncJob: { findUniqueOrThrow: vi.fn(), update: vi.fn(), findFirst: vi.fn() },
     erpConnection: { update: vi.fn() },
+    $transaction: vi.fn(),
   },
 }));
 vi.mock("../models/connections.server", () => ({
   getConnection: vi.fn(),
+  getConnectionShopDomain: vi.fn(),
   getFieldMappings: vi.fn(),
   loadErpCredentials: vi.fn(),
 }));
@@ -35,6 +43,7 @@ vi.mock("../adapters/registry.server", () => ({
 }));
 vi.mock("./activityLog.server", () => ({ logActivity: vi.fn() }));
 vi.mock("./webhookDispatch.server", () => ({ dispatchEvent: vi.fn() }));
+vi.mock("../utils/billing.server", () => ({ recordOrderSyncUsage: vi.fn() }));
 
 const CONNECTION = { id: "conn-1", shopId: "shop-1", erpType: "netsuite", status: "active" };
 
@@ -53,7 +62,11 @@ beforeEach(() => {
   vi.mocked(getAuthType).mockReturnValue("oauth2");
   vi.mocked(db.syncJob.update).mockResolvedValue({} as never);
   vi.mocked(db.erpConnection.update).mockResolvedValue({} as never);
+  vi.mocked(db.$transaction).mockResolvedValue([] as never);
   vi.mocked(db.syncJob.findFirst).mockResolvedValue(null); // no pre-existing successful sync by default
+  // No shop domain by default -- keeps the billing usage side-path (see "records billing usage"
+  // test below) a no-op in every other test rather than needing unauthenticated.admin mocked out.
+  vi.mocked(getConnectionShopDomain).mockResolvedValue(null);
 });
 
 const CANONICAL_ORDER_PAYLOAD = {
@@ -145,6 +158,58 @@ describe("processJob", () => {
       data: { lastSuccessfulSyncAt: expect.any(Date) },
     });
     expect(dispatchEvent).toHaveBeenCalledWith("conn-1", "order_synced", expect.objectContaining({ erpDocumentId: "SO-200" }));
+    expect(db.$transaction).toHaveBeenCalledTimes(1); // the two success-path writes commit together
+  });
+
+  it("records billing usage after a successful push when a shop domain resolves", async () => {
+    vi.mocked(db.syncJob.findUniqueOrThrow).mockResolvedValue({
+      id: "job-3",
+      connectionId: "conn-1",
+      entityType: "order",
+      mode: "live",
+      shopifyReferenceId: "555",
+      payload: CANONICAL_ORDER_PAYLOAD,
+    } as never);
+    const adapter = {
+      authenticate: vi.fn().mockResolvedValue({ success: true }),
+      pushOrder: vi.fn().mockResolvedValue({ documentType: "SalesOrder", documentId: "SO-200" }),
+    };
+    vi.mocked(createAdapter).mockReturnValue(adapter as never);
+    vi.mocked(getConnectionShopDomain).mockResolvedValue("test-shop.myshopify.com");
+    const admin = { graphql: vi.fn() };
+    vi.mocked(unauthenticated.admin).mockResolvedValue({ admin, session: {} } as never);
+
+    await processJob(makeJob({ data: { syncJobId: "job-3" } }));
+
+    expect(unauthenticated.admin).toHaveBeenCalledWith("test-shop.myshopify.com");
+    expect(recordOrderSyncUsage).toHaveBeenCalledWith(admin, "job-3", "555");
+  });
+
+  it("doesn't fail an otherwise-successful sync when billing usage recording throws", async () => {
+    vi.mocked(db.syncJob.findUniqueOrThrow).mockResolvedValue({
+      id: "job-3",
+      connectionId: "conn-1",
+      entityType: "order",
+      mode: "live",
+      shopifyReferenceId: "555",
+      payload: CANONICAL_ORDER_PAYLOAD,
+    } as never);
+    vi.mocked(createAdapter).mockReturnValue({
+      authenticate: vi.fn().mockResolvedValue({ success: true }),
+      pushOrder: vi.fn().mockResolvedValue({ documentType: "SalesOrder", documentId: "SO-200" }),
+    } as never);
+    vi.mocked(getConnectionShopDomain).mockResolvedValue("test-shop.myshopify.com");
+    vi.mocked(unauthenticated.admin).mockResolvedValue({ admin: {}, session: {} } as never);
+    vi.mocked(recordOrderSyncUsage).mockRejectedValue(new Error("no active subscription"));
+
+    await expect(processJob(makeJob({ data: { syncJobId: "job-3" } }))).resolves.toBeUndefined();
+
+    expect(logActivity).toHaveBeenCalledWith(
+      "conn-1",
+      "billing_usage_record_failed",
+      expect.stringContaining("no active subscription"),
+      "warning",
+    );
   });
 
   it("throws (refuses to process) when the connection is disabled", async () => {
@@ -159,6 +224,58 @@ describe("processJob", () => {
     vi.mocked(getConnection).mockResolvedValue({ ...CONNECTION, status: "disabled" } as never);
 
     await expect(processJob(makeJob({ data: { syncJobId: "job-4" } }))).rejects.toThrow(/disabled or missing/);
+  });
+});
+
+describe("processJob -- resumed mid-flight after an apparent crash", () => {
+  it("dead-letters a live job resumed while still 'processing', without retrying the push", async () => {
+    vi.mocked(db.syncJob.findUniqueOrThrow).mockResolvedValue({
+      id: "job-5",
+      connectionId: "conn-1",
+      entityType: "order",
+      mode: "live",
+      status: "processing",
+      shopifyReferenceId: "555",
+      payload: CANONICAL_ORDER_PAYLOAD,
+    } as never);
+    const adapter = { authenticate: vi.fn(), pushOrder: vi.fn() };
+    vi.mocked(createAdapter).mockReturnValue(adapter as never);
+
+    await processJob(makeJob({ data: { syncJobId: "job-5" } }));
+
+    expect(adapter.pushOrder).not.toHaveBeenCalled();
+    expect(db.syncJob.update).toHaveBeenCalledWith({
+      where: { id: "job-5" },
+      data: { status: "dead_letter", lastError: expect.stringContaining("manual") },
+    });
+    expect(logActivity).toHaveBeenCalledWith(
+      "conn-1",
+      "sync_needs_manual_review",
+      expect.any(String),
+      "error",
+    );
+    expect(dispatchEvent).toHaveBeenCalledWith("conn-1", "sync_failed", expect.objectContaining({ shopifyOrderId: "555" }));
+  });
+
+  it("does not dead-letter a shadow job resumed while still 'processing' -- shadow never touches the ERP", async () => {
+    vi.mocked(db.syncJob.findUniqueOrThrow).mockResolvedValue({
+      id: "job-6",
+      connectionId: "conn-1",
+      entityType: "order",
+      mode: "shadow",
+      status: "processing",
+      shopifyReferenceId: "555",
+      payload: CANONICAL_ORDER_PAYLOAD,
+    } as never);
+    const adapter = { authenticate: vi.fn(), pushOrder: vi.fn() };
+    vi.mocked(createAdapter).mockReturnValue(adapter as never);
+
+    await processJob(makeJob({ data: { syncJobId: "job-6" } }));
+
+    expect(db.syncJob.update).toHaveBeenCalledWith({
+      where: { id: "job-6" },
+      data: { status: "success", completedAt: expect.any(Date) },
+    });
   });
 });
 
