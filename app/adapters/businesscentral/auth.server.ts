@@ -95,3 +95,34 @@ export async function refreshAccessToken(
 
   return toTokens((await response.json()) as BusinessCentralTokenResponse, refreshToken);
 }
+
+export interface BusinessCentralCompany {
+  id: string;
+  name: string;
+}
+
+// Added so the Connect wizard can auto-detect the company instead of asking the merchant to find
+// an internal GUID nowhere exposed in the Business Central UI (the wizard used to collect
+// companyId as a plain text field -- see the callback route's business_central branch for how
+// this gets used: one company auto-selects, more than one prompts a picker).
+//
+// TODO(D4): the companies entity's exact field set (id, name, displayName) is built from
+// Microsoft's documented v2.0 API schema, not verified against a live environment -- if
+// displayName turns out not to exist, this falls back to name, which does.
+export async function listCompanies(
+  tenantId: string,
+  environment: string,
+  accessToken: string,
+): Promise<BusinessCentralCompany[]> {
+  const url = `https://api.businesscentral.dynamics.com/v2.0/${tenantId}/${environment}/api/v2.0/companies`;
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Business Central company lookup failed: ${response.status} ${await response.text()}`);
+  }
+
+  const data = (await response.json()) as { value: { id: string; name: string; displayName?: string }[] };
+  return data.value.map((c) => ({ id: c.id, name: c.displayName ?? c.name }));
+}

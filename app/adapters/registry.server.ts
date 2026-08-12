@@ -228,13 +228,10 @@ const ADAPTERS: Record<AvailableErpType, ErpAdapterEntry> = {
         label: "Environment name",
         helpText:
           'Also in that same browser address bar, right after the tenant ID -- typically "Production", ' +
-          '"Sandbox", or a custom name your admin chose.',
-      },
-      {
-        name: "companyId",
-        label: "Company ID",
-        helpText:
-          "Not the company name you see on screen -- an internal ID. See step 6 below for how to look it up.",
+          '"Sandbox", or a custom name your admin chose. Note: if the address bar shows a referrer/redirect ' +
+          "URL with nothing after the tenant ID, that page hasn't finished loading into a specific " +
+          "environment yet -- wait for it to land inside the actual company, or check " +
+          '"<tenant-id>/admin" for a list of every environment in your tenant by name.',
       },
       {
         name: "clientId",
@@ -268,10 +265,9 @@ const ADAPTERS: Record<AvailableErpType, ErpAdapterEntry> = {
         'Left sidebar > "API permissions" > Add a permission > APIs my organization uses > search "Dynamics ' +
           '365 Business Central" > Delegated permissions > check "user_impersonation" > Add, then click ' +
           '"Grant admin consent" on that same page.',
-        "For the Company ID: while signed into Business Central in the same browser, visit " +
-          "https://api.businesscentral.dynamics.com/v2.0/<tenant>/<environment>/api/v2.0/companies " +
-          "(swap in your Tenant ID and Environment name from above). It returns a short list -- copy the " +
-          '"id" value next to your company\'s name.',
+        "You don't need to look up a Company ID yourself -- after you click Connect below and approve " +
+          "access, we detect it automatically (or ask you to pick, if this environment has more than one " +
+          "company).",
       ],
     },
     authType: "oauth2",

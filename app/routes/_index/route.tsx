@@ -16,41 +16,71 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return { showForm: Boolean(login) };
 };
 
+const FEATURES = [
+  {
+    title: "Real-time sync",
+    text:
+      "Orders push to your ERP the moment they're placed, wherever the ERP's own API supports it -- " +
+      "reconciled continuously everywhere else, so nothing is quietly batch-polled without you knowing.",
+  },
+  {
+    title: "Reconciliation that never sleeps",
+    text:
+      "Every order is checked against your ERP on a short cycle, not just nightly -- a webhook that " +
+      "silently failed gets caught in minutes, not discovered during month-end close.",
+  },
+  {
+    title: "Built for agencies",
+    text:
+      "Manage every client's connection from one dashboard, with reusable mapping templates and " +
+      "white-label reports -- one tool across NetSuite, Business Central, Acumatica, and Sage clients alike.",
+  },
+];
+
 export default function App() {
   const { showForm } = useLoaderData<typeof loader>();
 
   return (
-    <div className={styles.index}>
-      <div className={styles.content}>
-        <h1 className={styles.heading}>A short heading about [your app]</h1>
+    <div className={styles.page}>
+      <div className={styles.container}>
+        <p className={styles.eyebrow}>Shopify Multi-ERP Connector</p>
+        <h1 className={styles.heading}>Sync Shopify to your ERP, without an integrator</h1>
         <p className={styles.text}>
-          A tagline about [your app] that describes your value proposition.
+          One consistent setup for NetSuite, Business Central, Acumatica, Sage Intacct, Sage 300, or
+          Brightpearl -- self-serve, transparently priced, and reconciled around the clock.
         </p>
+
         {showForm && (
-          <Form className={styles.form} method="post" action="/auth/login">
-            <label className={styles.label}>
-              <span>Shop domain</span>
-              <input className={styles.input} type="text" name="shop" />
-              <span>e.g: my-shop-domain.myshopify.com</span>
-            </label>
-            <button className={styles.button} type="submit">
-              Log in
-            </button>
-          </Form>
+          <div className={styles.card}>
+            <Form className={styles.form} method="post" action="/auth/login">
+              <label className={styles.label} htmlFor="shop">
+                Shop domain
+              </label>
+              <div className={styles.formRow}>
+                <input
+                  id="shop"
+                  className={styles.input}
+                  type="text"
+                  name="shop"
+                  placeholder="my-shop-domain.myshopify.com"
+                  autoComplete="off"
+                />
+                <button className={styles.button} type="submit">
+                  Log in
+                </button>
+              </div>
+            </Form>
+          </div>
         )}
+
         <ul className={styles.list}>
-          <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
-          </li>
-          <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
-          </li>
-          <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
-          </li>
+          {FEATURES.map((feature) => (
+            <li key={feature.title} className={styles.listItem}>
+              <span className={styles.listAccent} aria-hidden="true" />
+              <strong className={styles.listTitle}>{feature.title}</strong>
+              <span className={styles.listText}>{feature.text}</span>
+            </li>
+          ))}
         </ul>
       </div>
     </div>

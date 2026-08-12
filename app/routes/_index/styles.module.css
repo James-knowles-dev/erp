@@ -1,73 +1,174 @@
-.index {
-  align-items: center;
+.page {
+  min-height: 100%;
+  width: 100%;
   display: flex;
   justify-content: center;
-  height: 100%;
+  padding: 4rem 1.5rem 5rem;
+  background:
+    radial-gradient(60rem 30rem at 50% -10%, rgba(0, 128, 96, 0.08), transparent 60%),
+    #fafbfb;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color: #1a1a1a;
+}
+
+.container {
   width: 100%;
+  max-width: 40rem;
   text-align: center;
-  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
-.heading,
-.text {
-  padding: 0;
+.eyebrow {
+  margin: 0 0 1rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #007a5c;
+}
+
+.heading {
   margin: 0;
+  font-size: 2.5rem;
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #0f1211;
 }
 
 .text {
-  font-size: 1.2rem;
-  padding-bottom: 2rem;
+  margin: 1rem 0 0;
+  max-width: 34rem;
+  font-size: 1.1rem;
+  line-height: 1.55;
+  color: #52585a;
 }
 
-.content {
-  display: grid;
-  gap: 2rem;
+.card {
+  margin-top: 2.5rem;
+  width: 100%;
+  max-width: 26rem;
+  background: #ffffff;
+  border: 1px solid #e3e6e5;
+  border-radius: 0.9rem;
+  padding: 1.5rem;
+  box-shadow: 0 1px 2px rgba(16, 24, 22, 0.04), 0 8px 24px rgba(16, 24, 22, 0.06);
 }
 
 .form {
   display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  margin: 0 auto;
-  gap: 1rem;
+  flex-direction: column;
+  gap: 0.5rem;
+  text-align: left;
 }
 
 .label {
-  display: grid;
-  gap: 0.2rem;
-  max-width: 20rem;
-  text-align: left;
-  font-size: 1rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #2c3232;
+}
+
+.formRow {
+  display: flex;
+  gap: 0.6rem;
 }
 
 .input {
-  padding: 0.4rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.95rem;
+  border: 1px solid #c9cccb;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #1a1a1a;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.input::placeholder {
+  color: #9aa09e;
+}
+
+.input:focus {
+  outline: none;
+  border-color: #008060;
+  box-shadow: 0 0 0 3px rgba(0, 128, 96, 0.15);
 }
 
 .button {
-  padding: 0.4rem;
+  flex-shrink: 0;
+  padding: 0.65rem 1.1rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #fff;
+  background: #008060;
+  border: 1px solid #007a5c;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.button:hover {
+  background: #006e52;
+}
+
+.button:focus-visible {
+  outline: 2px solid #008060;
+  outline-offset: 2px;
 }
 
 .list {
   list-style: none;
+  margin: 4rem 0 0;
   padding: 0;
-  padding-top: 3rem;
-  margin: 0;
-  display: flex;
-  gap: 2rem;
-}
-
-.list > li {
-  max-width: 20rem;
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.75rem;
   text-align: left;
 }
 
-@media only screen and (max-width: 50rem) {
-  .list {
-    display: block;
+.listItem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-top: 0.85rem;
+  border-top: 2px solid #008060;
+}
+
+.listAccent {
+  display: none; /* the top border above stands in as the accent -- kept as a hook for future iconography */
+}
+
+.listTitle {
+  font-size: 1rem;
+  color: #0f1211;
+}
+
+.listText {
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: #5c6260;
+}
+
+@media only screen and (max-width: 42rem) {
+  .heading {
+    font-size: 2rem;
   }
 
-  .list > li {
-    padding-bottom: 1rem;
+  .list {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+
+  .formRow {
+    flex-direction: column;
+  }
+
+  .button {
+    width: 100%;
   }
 }

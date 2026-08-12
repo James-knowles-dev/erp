@@ -1,8 +1,14 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { redirect } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
-import { loadErpCredentials, setConnectionStatus, storeErpCredentials } from "../models/connections.server";
+import {
+  loadErpCredentials,
+  setConnectionStatus,
+  storeErpCredentials,
+  storePartialErpConfig,
+} from "../models/connections.server";
 import { createAdapter, exchangeCodeForTokens, getAuthType, getConnectFormFields } from "../adapters/registry.server";
+import { listCompanies } from "../adapters/businesscentral/auth.server";
 
 // The ERP redirects the merchant's browser back here after they log in and consent (or deny).
 // TODO(D4): this is a full top-level round-trip out of the Shopify embedded iframe and back --
@@ -50,6 +56,32 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   }
 
   const fullCredentials = { ...partialConfig, ...tokens };
+
+  // Business Central's companyId is an internal GUID nowhere exposed in its own UI -- rather than
+  // ask the merchant to hunt for it (the wizard used to collect it as a plain text field), detect
+  // it ourselves now that we have a real access token. One company: auto-select and continue below
+  // exactly like every other ERP. More than one: stash what we have (status stays non-active, so
+  // step 3's `status === "active"` gate can't be skipped past) and send them to a picker instead of
+  // finishing here.
+  if (erpType === "business_central") {
+    let companies;
+    try {
+      companies = await listCompanies(fullCredentials.tenantId, fullCredentials.environment, tokens.accessToken);
+    } catch (err) {
+      await setConnectionStatus(connectionId, "error");
+      return backToStep2(err instanceof Error ? err.message : "Could not look up Business Central companies.");
+    }
+    if (companies.length === 0) {
+      await setConnectionStatus(connectionId, "error");
+      return backToStep2("No companies found in this Business Central environment -- check you entered the right environment name.");
+    }
+    if (companies.length > 1) {
+      await storePartialErpConfig(connectionId, fullCredentials);
+      return redirect(`/app/connect/business_central/company?connectionId=${connectionId}`);
+    }
+    fullCredentials.companyId = companies[0].id;
+  }
+
   await storeErpCredentials(connectionId, fullCredentials);
 
   const adapter = createAdapter(erpType);
